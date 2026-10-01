@@ -133,7 +133,8 @@ class LLMClient(Protocol):
 ```
 POST /runs {prompt_version_id}
   1. gateway.get_version_for_run()            → 404 if the version doesn't exist
-  2. insert eval_runs row, status=pending      (with the snapshot)
+  2. insert eval_runs row, status=pending      (template snapshot)
+     + one pending eval_results row per test case (inputs/checks snapshot)
   3. BackgroundTasks.add_task(execute_run, id)
   4. return 202 {run_id, status: "pending"}
 

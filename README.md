@@ -29,6 +29,8 @@ No setup step is needed: the SQLite database and its tables are created automati
 | `DATA_DIR` | `./data` | Directory holding the SQLite file |
 | `LLM_PROVIDER` | `fake` | `fake` (deterministic, no API key needed) or `anthropic` |
 | `LLM_API_KEY` | none | Required only when `LLM_PROVIDER=anthropic` |
+| `LLM_MODEL` | `claude-haiku-4-5` | Model used when a prompt version doesn't name one |
+| `LLM_CONCURRENCY` | `4` | Max LLM calls in flight during one run |
 
 **SQLite path:** `$DATA_DIR/promptcheck.db` (default `./data/promptcheck.db`).
 
@@ -38,7 +40,7 @@ No setup step is needed: the SQLite database and its tables are created automati
 pytest --cov=promptcheck --cov-report=term-missing
 ```
 
-Current result: 35 tests passed, 99% coverage.
+Current result: 77 tests passed, 99% coverage.
 
 ## Project layout
 
@@ -56,13 +58,22 @@ promptcheck/
     repository.py         SQL and table definitions
     check_specs.py        allowed check types and their arguments
     schemas.py            request/response models
+  evals/                  domain 2: evaluation runs and scoring
+    router.py             HTTP endpoints (POST /runs returns 202, runs in background)
+    runner.py             create_run, evaluate_case, execute_run, startup recovery
+    checks.py             check functions + CHECKS registry
+    templates.py          render {variables} into a template
+    llm_client.py         LLMClient protocol + FakeLLMClient
+    gateway.py            PromptsGateway: the only way evals reads prompt data
+    repository.py         SQL and table definitions
+    schemas.py            request/response models
 tests/                    pytest suite
 docs/DESIGN.md            system design
 ADR.md                    architecture decision records
 AI_USAGE.md               AI usage log
 ```
 
-## API (prompts domain)
+## API
 
 | Method | Path | Description |
 |---|---|---|
@@ -75,6 +86,9 @@ AI_USAGE.md               AI usage log
 | POST / GET | `/prompts/{id}/test-cases` | Add a test case / list active test cases |
 | DELETE | `/test-cases/{id}` | Archive a test case |
 | GET | `/checks` | Available check types |
+| POST | `/runs` | Start a run for `{"prompt_version_id": n}`; returns 202 immediately |
+| GET | `/runs?prompt_id=` | List runs, newest first |
+| GET | `/runs/{id}` | Run status, pass rate and per-test-case results |
 
 ### Example
 
@@ -88,4 +102,9 @@ curl -X POST localhost:8000/prompts/1/versions -H 'content-type: application/jso
 curl -X POST localhost:8000/prompts/1/test-cases -H 'content-type: application/json' \
   -d '{"name": "spanish refund", "inputs": {"message": "quiero devolver mis zapatillas"},
        "checks": [{"type": "contains", "arg": "reembolso"}, {"type": "max_length", "arg": 600}]}'
+
+curl -X POST localhost:8000/runs -H 'content-type: application/json' \
+  -d '{"prompt_version_id": 1}'          # -> 202 {"id": 1, "status": "pending", ...}
+
+curl localhost:8000/runs/1               # poll until "status" is "completed" or "failed"
 ```
