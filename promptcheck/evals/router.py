@@ -1,0 +1,39 @@
+"""HTTP layer for the evals domain."""
+import sqlite3
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
+
+from promptcheck.db import get_db
+from promptcheck.evals import runner
+from promptcheck.evals.gateway import InProcessPromptsGateway
+from promptcheck.evals.schemas import RunCreate, RunDetailOut, RunOut
+
+router = APIRouter(tags=["evals"])
+
+
+@router.post("/runs", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED)
+def start_run(
+    body: RunCreate, request: Request, background: BackgroundTasks,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Create a run and return immediately (202). The LLM calls happen in the background;
+    poll GET /runs/{id} until status is 'completed' or 'failed'."""
+    settings = request.app.state.settings
+    llm = request.app.state.llm
+    run = runner.create_run(
+        conn, InProcessPromptsGateway(settings.db_path), body.prompt_version_id,
+        provider=llm.name, default_model=settings.llm_model,
+    )
+    conn.commit()  # the background task opens its own connection, so the run must be saved first
+    background.add_task(runner.execute_run, settings.db_path, run["id"], llm, settings.llm_concurrency)
+    return run
+
+
+@router.get("/runs", response_model=list[RunOut])
+def list_runs(prompt_id: int | None = None, conn: sqlite3.Connection = Depends(get_db)):
+    return runner.list_runs(conn, prompt_id)
+
+
+@router.get("/runs/{run_id}", response_model=RunDetailOut)
+def get_run(run_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    return runner.get_run(conn, run_id, with_results=True)
