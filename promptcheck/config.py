@@ -11,7 +11,7 @@ class Settings:
     data_dir: Path
     llm_provider: str
     llm_api_key: str | None
-    llm_model: str = "claude-haiku-4-5"
+    llm_model: str = "claude-opus-5"
     llm_concurrency: int = 4
 
     @property
@@ -26,6 +26,6 @@ def load_settings() -> Settings:
         data_dir=Path(os.environ.get("DATA_DIR", "./data")),
         llm_provider=os.environ.get("LLM_PROVIDER", "fake"),
         llm_api_key=os.environ.get("LLM_API_KEY"),
-        llm_model=os.environ.get("LLM_MODEL", "claude-haiku-4-5"),
+        llm_model=os.environ.get("LLM_MODEL", "claude-opus-5"),
         llm_concurrency=int(os.environ.get("LLM_CONCURRENCY", "4")),
     )
