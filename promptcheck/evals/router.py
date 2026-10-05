@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 
 from promptcheck.db import get_db
 from promptcheck.evals import runner
+from promptcheck.evals.compare import compare_runs
 from promptcheck.evals.gateway import InProcessPromptsGateway
 from promptcheck.evals.schemas import RunCreate, RunDetailOut, RunOut
 
@@ -32,6 +33,17 @@ def start_run(
 @router.get("/runs", response_model=list[RunOut])
 def list_runs(prompt_id: int | None = None, conn: sqlite3.Connection = Depends(get_db)):
     return runner.list_runs(conn, prompt_id)
+
+
+# declared before /runs/{run_id}, otherwise "compare" would be parsed as a run id
+@router.get("/runs/compare")
+def compare(base: int, candidate: int, conn: sqlite3.Connection = Depends(get_db)):
+    """Compare a candidate run against a base run of the same prompt: regressions,
+    fixes, pass-rate/latency/token deltas and a ship/block verdict."""
+    return compare_runs(
+        runner.get_run(conn, base, with_results=True),
+        runner.get_run(conn, candidate, with_results=True),
+    )
 
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut)

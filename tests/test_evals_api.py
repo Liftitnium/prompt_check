@@ -36,3 +36,19 @@ def test_run_errors_map_to_status_codes(client):
     pid = client.post("/prompts", json={"name": "no-tests"}).json()["id"]
     vid = client.post(f"/prompts/{pid}/versions", json={"template": "Hi"}).json()["id"]
     assert client.post("/runs", json={"prompt_version_id": vid}).status_code == 422
+
+
+def test_compare_two_versions_over_http(client):
+    pid, v1 = setup_prompt(client)  # v1 template mentions "Reembolso", so the check passes
+    v2 = client.post(f"/prompts/{pid}/versions",
+                     json={"template": "Gracias por escribir: {message}"}).json()["id"]
+    run1 = client.post("/runs", json={"prompt_version_id": v1}).json()["id"]
+    run2 = client.post("/runs", json={"prompt_version_id": v2}).json()["id"]
+
+    report = client.get("/runs/compare", params={"base": run1, "candidate": run2}).json()
+    assert report["verdict"] == "block"
+    assert report["summary"]["regressed"] == 1
+    assert report["cases"]["regressed"][0]["candidate_failed_checks"] == ["missing 'reembolso'"]
+    assert report["metrics"]["pass_rate"] == {"base": 1.0, "candidate": 0.0, "change": -1.0}
+
+    assert client.get("/runs/compare", params={"base": run1, "candidate": 999}).status_code == 404
