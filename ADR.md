@@ -23,3 +23,11 @@ Context: An eval run needs the template and test cases that were current when it
 Decision: Foreign keys only exist inside a domain (prompt_versions → prompts, eval_results → eval_runs). Evals stores prompt_version_id and test_case_id as plain integers, and at run creation copies the template into eval_runs.template_snapshot and each test case's inputs/checks into a pending eval_results row.
 Alternatives considered: Real foreign keys from eval_results to test_cases and eval_runs to prompt_versions, reading the template through a join at display time. Rejected because archiving or changing a test case would silently change what an old run appears to have tested, and cross-domain foreign keys would have to be removed anyway before the databases can be split.
 Consequences: Every run is reproducible and self-contained, and the evals tables can move to another database unchanged. The cost is duplicated data (the template and test cases are stored again per run) and no database-level guarantee that a referenced version still exists.
+
+## 5. Not building LLM-as-judge scoring
+Date: 2026-10-03
+Status: Decided
+Context: Some prompt qualities ("is this reply polite?", "is it helpful?") are hard to express as rules, and a common approach is to ask a second LLM to grade each output. PromptCheck's verdict decides whether a prompt change ships, so the score itself has to be trustworthy.
+Decision: Score outputs only with the 7 deterministic rule checks (contains, regex, valid_json, ...). No LLM-graded check type.
+Alternatives considered: An `llm_judge` check that sends the output plus a rubric to Claude and passes on a "yes". Rejected because the same output could pass on one run and fail on the next, so a "regression" could be judge noise rather than a real change; it would also double the API cost of every run and make the tests depend on a model.
+Consequences: Every verdict is reproducible, free to compute and fully unit-tested. The cost is that fuzzy qualities like tone can only be approximated with rules (e.g. not_contains for banned words); an optional judge check is the first thing to revisit if users need it.
