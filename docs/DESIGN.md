@@ -126,7 +126,7 @@ class LLMClient(Protocol):
     async def complete(self, prompt: str, model: str) -> LLMResponse  # text, tokens_in, tokens_out
 ```
 - **FakeLLMClient** (default, `LLM_PROVIDER=fake`): deterministic, no network. It echoes the rendered prompt, so template changes visibly change the outputs and checks behave meaningfully in the demo.
-- **AnthropicClient** (`LLM_PROVIDER=anthropic`, `LLM_API_KEY`, `LLM_MODEL`): uses `httpx.AsyncClient` with a 30 s timeout. **Retries 429/5xx up to 3 times with exponential backoff** (0.5 s, 1 s, 2 s). A 4xx error is not retried.
+- **AnthropicClient** (`LLM_PROVIDER=anthropic`, `LLM_API_KEY`, `LLM_MODEL`, default `claude-opus-5`): uses the official `anthropic` SDK (`AsyncAnthropic`, 120 s timeout). **Retries are delegated to the SDK** (`max_retries=3`: connection errors, 408, 409, 429 and 5xx, with exponential backoff that honours `retry-after`). Changed from the original plan of a hand-written httpx client with its own retry loop, because the SDK already does this correctly. Only `text` content blocks are read (thinking blocks are skipped). `stop_reason == "refusal"` raises `LLMRefusalError`, which becomes an `error` result. There is deliberately **no server-side model fallback**: falling back would test a different model than the version specifies.
 - The client is picked once at startup by `build_llm_client(settings)`.
 
 ### 3.5 Run lifecycle (asynchronous, in-process)

@@ -28,8 +28,8 @@ No setup step is needed: the SQLite database and its tables are created automati
 | `HOST` | `0.0.0.0` | Bind address (all interfaces, so it works inside a container) |
 | `DATA_DIR` | `./data` | Directory holding the SQLite file |
 | `LLM_PROVIDER` | `fake` | `fake` (deterministic, no API key needed) or `anthropic` |
-| `LLM_API_KEY` | none | Required only when `LLM_PROVIDER=anthropic` |
-| `LLM_MODEL` | `claude-haiku-4-5` | Model used when a prompt version doesn't name one |
+| `LLM_API_KEY` | none | Anthropic API key for `LLM_PROVIDER=anthropic`; if unset, the SDK falls back to `ANTHROPIC_API_KEY` |
+| `LLM_MODEL` | `claude-opus-5` | Model used when a prompt version doesn't name one (e.g. `claude-haiku-4-5` for cheaper runs) |
 | `LLM_CONCURRENCY` | `4` | Max LLM calls in flight during one run |
 
 **SQLite path:** `$DATA_DIR/promptcheck.db` (default `./data/promptcheck.db`).
@@ -40,7 +40,7 @@ No setup step is needed: the SQLite database and its tables are created automati
 pytest --cov=promptcheck --cov-report=term-missing
 ```
 
-Current result: 77 tests passed, 99% coverage.
+Current result: 90 tests passed, 99% coverage.
 
 ## Project layout
 
@@ -63,7 +63,8 @@ promptcheck/
     runner.py             create_run, evaluate_case, execute_run, startup recovery
     checks.py             check functions + CHECKS registry
     templates.py          render {variables} into a template
-    llm_client.py         LLMClient protocol + FakeLLMClient
+    llm_client.py         LLMClient protocol, FakeLLMClient, AnthropicClient (official SDK)
+    compare.py            compare two runs: regressions, fixes, deltas, ship/block verdict
     gateway.py            PromptsGateway: the only way evals reads prompt data
     repository.py         SQL and table definitions
     schemas.py            request/response models
@@ -88,6 +89,7 @@ AI_USAGE.md               AI usage log
 | GET | `/checks` | Available check types |
 | POST | `/runs` | Start a run for `{"prompt_version_id": n}`; returns 202 immediately |
 | GET | `/runs?prompt_id=` | List runs, newest first |
+| GET | `/runs/compare?base=&candidate=` | Regressions, fixes, pass-rate/latency/token deltas and a `ship`/`block` verdict |
 | GET | `/runs/{id}` | Run status, pass rate and per-test-case results |
 
 ### Example
@@ -107,4 +109,15 @@ curl -X POST localhost:8000/runs -H 'content-type: application/json' \
   -d '{"prompt_version_id": 1}'          # -> 202 {"id": 1, "status": "pending", ...}
 
 curl localhost:8000/runs/1               # poll until "status" is "completed" or "failed"
+
+# after publishing v2 and running it as run 2:
+curl "localhost:8000/runs/compare?base=1&candidate=2"   # -> {"verdict": "block", "summary": {"regressed": 1, ...}}
 ```
+
+## Using the real Claude API
+
+```bash
+LLM_PROVIDER=anthropic LLM_API_KEY=sk-ant-... python app.py
+```
+
+The SDK retries rate limits (429) and server errors (5xx) up to 3 times with exponential backoff. A refused request is recorded as an `error` result for that test case; the rest of the run continues.
