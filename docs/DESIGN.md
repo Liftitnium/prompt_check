@@ -15,7 +15,7 @@ An 8-person AI team at a Spanish e-commerce startup. Their customer-support assi
 | F5 | Score each output with deterministic checks (contains, regex, valid JSON, ...) | evals |
 | F6 | Compare two runs: which cases **regressed**, which got **fixed**, pass-rate and latency deltas, and a ship / don't-ship verdict | evals |
 | F7 | Work with no API key (fake LLM) and with a real provider via env vars | evals |
-| F8 | A dashboard page to browse prompts, trigger runs, and view comparisons | UI |
+| F8 | Ship demo data (one prompt, two versions, three test cases) so a new user sees a regression immediately | prompts |
 
 ### Non-functional requirements (assumed load)
 - **Users:** 8 engineers, ~20 prompts × ~30 test cases each.
@@ -25,25 +25,29 @@ An 8-person AI team at a Spanish e-commerce startup. Their customer-support assi
 - **Cost:** concurrency is capped so a 30-case run doesn't hit provider rate limits.
 
 ### Constraints (from the assignment)
-Single process / single container, SQLite at `$DATA_DIR/promptcheck.db`, all config via env vars, binds `0.0.0.0`, no brokers/Celery/cron, ~12 packages max, starts in seconds with no manual setup, deadline 2026-10-04.
+Single process in a single Docker container built from the course `Dockerfile` template (four TODOs filled, nothing else), SQLite at `$DATA_DIR/promptcheck.db` (`/data` in the container, a mounted volume), all config via env vars, binds `0.0.0.0`, reads `PORT`, creates its own schema on an empty data directory, seed data shipped as a text file and loaded idempotently, no brokers/Celery/cron, ~12 packages max, starts in seconds, verified with the course `run.sh` checker. Deadline 2026-10-12.
 
 ## 2. High-level design
 
 ```
-                    ┌──────────────────────────── one uvicorn process ────────────────────────────┐
- Browser ──HTTP──►  │  FastAPI app (main.py)                                                      │
- (dashboard,        │   ├── /static  dashboard.html + app.js                                      │
-  /docs)            │   ├── prompts/router.py ──► prompts/service.py ──► prompts/repository.py ──┐ │
-                    │   │                               ▲                                        │ │
-                    │   │                               │ PromptsGateway (the seam)              │ │
-                    │   │                               │                                        ▼ │
-                    │   └── evals/router.py ──► evals/runner.py ──► evals/repository.py ──► SQLite │
-                    │                             │    │                              promptcheck.db│
-                    │                   checks.py │    │ llm_client.py                             │
-                    │                  (pure fns) │    ├── FakeLLMClient (default)                 │
-                    │                  compare.py │    └── AnthropicClient ──HTTPS──► LLM API      │
-                    └──────────────────────────────────────────────────────────────────────────────┘
+                    ┌─────────────── one Docker container, one uvicorn process (python app.py) ───────────────┐
+ Client ──HTTP──►   │  FastAPI app (main.py): / → /docs, /health, startup: init_db + recovery + load_seed     │
+ (curl, /docs)      │                                                                                         │
+ :$PORT             │  PROMPTS DOMAIN                                                                         │
+                    │   prompts/router.py ──► prompts/service.py ──► prompts/repository.py ──┐                │
+                    │                         ▲   seed.py ◄── seed.json                      │                │
+                    │ ✂ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┼ ─ SEAM: evals/gateway.py (PromptsGateway) ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ✂│
+                    │                         │   crosses: get_version_for_run(version_id)   │                │
+                    │  EVALS DOMAIN           │                                              ▼                │
+                    │   evals/router.py ──► evals/runner.py ──► evals/repository.py ──► SQLite file          │
+                    │                         │    │                                $DATA_DIR/promptcheck.db  │
+                    │               checks.py │    │ llm_client.py                  (/data = mounted volume)  │
+                    │              (pure fns) │    ├── FakeLLMClient (default)                                │
+                    │              compare.py │    └── AnthropicClient ──HTTPS──► Anthropic API (optional)    │
+                    └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+The ✂ line is where the monolith gets cut in Assignment 2. Only one thing crosses it: evals asks `PromptsGateway.get_version_for_run(version_id)` and gets back a plain dict (prompt id, version number, template, model, active test cases). Both domains share one SQLite file today, but no table is read or joined across the line, so each side's tables can move to their own database.
 
 ### Layers inside each domain
 - **router.py**: HTTP only. Parse the request, call the service, map errors to status codes.
@@ -101,7 +105,7 @@ Test cases belong to the **prompt**, not to a version. That's what makes compari
 
 Test cases are **archived, not deleted**, so history keeps making sense.
 
-SQLite runs in **WAL mode**, so the dashboard can read while a background run is writing results.
+SQLite runs in **WAL mode**, so GET requests can read while a background run is writing results.
 
 ### 3.2 Templates
 Templates use `{variable}` placeholders: `Reply in Spanish to: {message}`. `render(template, inputs)` extracts the variables with a regex and raises `MissingVariableError` if an input is missing. The test case's result is then `error`, not a crash.
@@ -149,7 +153,7 @@ GET /runs/{id}  → the client polls until status is completed or failed
 ```
 **Crash recovery:** in-process tasks die with the process. At startup, `lifespan` marks every `pending`/`running` run as `failed` with the error "interrupted by restart", so no run stays stuck forever.
 
-Why not Celery/Redis: the assignment forbids them, and at ~50 runs/week an in-process task is enough. That makes a good ADR.
+Why not Celery/Redis: the assignment forbids them (§1c), and at ~50 runs/week an in-process task is enough. Recorded in ADR-1.
 
 ### 3.6 Comparison
 `compare(base_run, candidate_run)` is a pure function over two lists of results, matched by `test_case_id`:
@@ -180,13 +184,21 @@ It returns the categories plus the pass-rate delta, average and p95 latency delt
 | GET | `/runs?prompt_id=` | list |
 | GET | `/runs/{id}` | run + results |
 | GET | `/runs/compare?base=&candidate=` | comparison report |
-| GET | `/` | dashboard |
+| GET | `/` | redirects to `/docs` (no frontend) |
 
 ### 3.8 Error handling
 Domain errors (`NotFoundError`, `ValidationError`, `ConflictError`) are raised in services and turned into 404/422/409 in **one** exception handler in `main.py`. Services therefore never know about HTTP.
 
 ### 3.9 Configuration
-`HOST`, `PORT`, `DATA_DIR`, `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_CONCURRENCY`, `SEED_DEMO` (when true, loads a demo prompt with 2 versions and 6 test cases at startup if the DB is empty, so a grader sees a regression immediately).
+`HOST`, `PORT`, `DATA_DIR`, `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `LLM_CONCURRENCY`, `SEED_DEMO` (default `true`). Defaults and meanings are in the README.
+
+### 3.10 Startup and seed data
+On every boot `lifespan` does three things, all safe to repeat:
+1. `init_db` runs each domain's schema with `CREATE TABLE IF NOT EXISTS`. It creates what is missing and never drops anything, so user data survives restarts and redeploys.
+2. `recover_interrupted_runs` marks runs left `pending`/`running` by a crash as `failed`.
+3. If `SEED_DEMO` is on, `load_seed` reads `promptcheck/prompts/seed.json` and creates the demo prompt, but **only if the prompts table is empty**. It goes through `prompts.service`, so seed data is validated exactly like API input.
+
+The seed is a readable JSON file, not a committed `.db`. A prebuilt database would only appear on a brand-new Docker volume and would be hidden by a bind mount or an Azure file share. The course checker boots the app twice on one volume and confirms the row counts don't change.
 
 ## 4. Scale and reliability
 - **Current scale:** a single process and SQLite easily handle 8 users. WAL mode handles reads during background writes.
@@ -201,9 +213,10 @@ Domain errors (`NotFoundError`, `ValidationError`, `ConflictError`) are raised i
 | DB access | raw `sqlite3` | SQLAlchemy | 5 tables, SQL stays visible and explainable, one less dependency |
 | Domain coupling | gateway interface + snapshots, no cross-domain FKs | shared tables / joins | splittable later (ADR-2, ADR-3) |
 | Run execution | BackgroundTasks + asyncio semaphore | synchronous request; Celery | sync blocks for 30-90 s; Celery isn't allowed |
-| Scoring | deterministic rule checks | LLM-as-judge | reproducible, free, testable; judge scoring is a candidate for ADR-5 |
-| Auth | none (internal tool) | API keys / login | 8 trusted users on an internal network; also a candidate for ADR-5 |
-| Frontend | one static page, vanilla JS | React/Jinja | no build step, no extra dependencies |
+| Scoring | deterministic rule checks | LLM-as-judge | reproducible, free, testable (ADR-5) |
+| Auth | none (internal tool) | API keys / login | 8 trusted users on an internal network |
+| Frontend | none: FastAPI's `/docs` page | static dashboard, React | the 8 users are engineers who already work with HTTP APIs, and `/docs` gives them a UI for free; the dashboard in the first design was not built |
+| Seed data | `seed.json` loaded when prompts is empty | committed `.db`; re-seed every boot | a `.db` is hidden by volumes; re-seeding duplicates rows or wipes user data |
 
 ## 6. What to revisit as it grows
 - More than ~10 concurrent runs → a real job queue and worker processes.
