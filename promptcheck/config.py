@@ -1,4 +1,4 @@
-"""All configuration comes from environment variables (deployment contract §7.9)."""
+"""All configuration comes from environment variables (container contract §7.9)."""
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +13,8 @@ class Settings:
     llm_api_key: str | None
     llm_model: str = "claude-opus-5"
     llm_concurrency: int = 4
+    # off unless set, so tests start from an empty database; load_settings turns it on
+    seed_demo: bool = False
 
     @property
     def db_path(self) -> Path:
@@ -28,4 +30,5 @@ def load_settings() -> Settings:
         llm_api_key=os.environ.get("LLM_API_KEY"),
         llm_model=os.environ.get("LLM_MODEL", "claude-opus-5"),
         llm_concurrency=int(os.environ.get("LLM_CONCURRENCY", "4")),
+        seed_demo=os.environ.get("SEED_DEMO", "true").lower() not in ("0", "false", "no"),
     )

@@ -1,0 +1,35 @@
+{
+  "prompts": [
+    {
+      "name": "refund-reply",
+      "description": "Demo: support reply to a customer asking for a refund. v2 drops the refund policy, so comparing a v1 run with a v2 run shows regressions.",
+      "versions": [
+        {
+          "template": "Eres el asistente de soporte de la tienda. Responde en español y explica la política de reembolso de 30 días.\nCliente: {message}",
+          "notes": "first version"
+        },
+        {
+          "template": "You are the store's support assistant. Reply briefly and politely.\nCustomer: {message}",
+          "notes": "shorter English rewrite"
+        }
+      ],
+      "test_cases": [
+        {
+          "name": "mentions refund policy",
+          "inputs": {"message": "quiero devolver mis zapatillas"},
+          "checks": [{"type": "contains", "arg": "reembolso"}, {"type": "contains", "arg": "30 días"}]
+        },
+        {
+          "name": "replies in Spanish",
+          "inputs": {"message": "¿dónde está mi pedido?"},
+          "checks": [{"type": "regex", "arg": "(?i)español"}]
+        },
+        {
+          "name": "stays short",
+          "inputs": {"message": "el paquete llegó roto"},
+          "checks": [{"type": "max_length", "arg": 600}]
+        }
+      ]
+    }
+  ]
+}

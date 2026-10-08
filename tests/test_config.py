@@ -4,13 +4,14 @@ from promptcheck.config import load_settings
 
 
 def test_defaults(monkeypatch):
-    for var in ["HOST", "PORT", "DATA_DIR", "LLM_PROVIDER", "LLM_API_KEY"]:
+    for var in ["HOST", "PORT", "DATA_DIR", "LLM_PROVIDER", "LLM_API_KEY", "SEED_DEMO"]:
         monkeypatch.delenv(var, raising=False)
     s = load_settings()
     assert s.host == "0.0.0.0"
     assert s.port == 8000
     assert s.llm_provider == "fake"
     assert s.db_path == Path("./data/promptcheck.db")
+    assert s.seed_demo is True
 
 
 def test_reads_env(monkeypatch, tmp_path):
@@ -19,3 +20,8 @@ def test_reads_env(monkeypatch, tmp_path):
     s = load_settings()
     assert s.port == 9000
     assert s.db_path == tmp_path / "promptcheck.db"
+
+
+def test_seed_demo_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("SEED_DEMO", "false")
+    assert load_settings().seed_demo is False
