@@ -26,7 +26,10 @@ def start_run(
         provider=llm.name, default_model=settings.llm_model,
     )
     conn.commit()  # the background task opens its own connection, so the run must be saved first
-    background.add_task(runner.execute_run, settings.db_path, run["id"], llm, settings.llm_concurrency)
+    background.add_task(
+        runner.execute_run, settings.db_path, run["id"], llm, settings.llm_concurrency,
+        request.app.state.judge,
+    )
     return run
 
 
@@ -48,11 +51,13 @@ def compare(base: int, candidate: int, conn: sqlite3.Connection = Depends(get_db
 
 @router.post("/runs/{run_id}/rescore", response_model=RunDetailOut,
              status_code=status.HTTP_201_CREATED)
-def rescore(run_id: int, request: Request, conn: sqlite3.Connection = Depends(get_db)):
+async def rescore(run_id: int, request: Request, conn: sqlite3.Connection = Depends(get_db)):
     """Re-score a completed run's stored outputs against the current checks, as a new run.
-    No LLM calls, so it runs synchronously."""
+    No new outputs are generated (only llm_judge checks call the judge), so it answers in one request."""
     settings = request.app.state.settings
-    return runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run_id)
+    return await runner.rescore_run(
+        conn, InProcessPromptsGateway(settings.db_path), run_id, request.app.state.judge
+    )
 
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut)

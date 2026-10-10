@@ -16,6 +16,7 @@ CHECK_SPECS: dict[str, type | None] = {
     "max_length": int,
     "valid_json": None,
     "json_has_keys": list,
+    "llm_judge": str,  # arg is a plain-language rubric; scored by a model (evals/judge.py)
 }
 
 
@@ -48,4 +49,6 @@ def _validate_one(check: dict) -> dict:
         raise InvalidInputError("max_length must be positive")
     if check_type == "json_has_keys" and not all(isinstance(k, str) for k in arg):
         raise InvalidInputError("json_has_keys needs a list of strings")
+    if check_type == "llm_judge" and not arg.strip():
+        raise InvalidInputError("llm_judge needs a rubric")
     return {"type": check_type, "arg": arg}

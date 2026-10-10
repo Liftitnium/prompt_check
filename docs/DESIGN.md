@@ -12,7 +12,7 @@ An 8-person AI team at a Spanish e-commerce startup. Their customer-support assi
 | F2 | See a line-by-line diff between two versions of a prompt | prompts |
 | F3 | Attach test cases to a prompt: input variables + one or more checks | prompts |
 | F4 | Run a prompt version against all its active test cases through an LLM | evals |
-| F5 | Score each output with deterministic checks (contains, regex, valid JSON, ...) | evals |
+| F5 | Score each output with deterministic rule checks (contains, regex, valid JSON, ...) and optional `llm_judge` rubric checks | evals |
 | F6 | Compare two runs: which cases **regressed**, which got **fixed**, pass-rate and latency deltas, and a ship / don't-ship verdict | evals |
 | F7 | Work with no API key (fake LLM) and with a real provider via env vars | evals |
 | F8 | Ship demo data (one prompt, two versions, three test cases) so a new user sees a regression immediately | prompts |
@@ -42,7 +42,7 @@ Single process in a single Docker container built from the course `Dockerfile` t
                     │   evals/router.py ──► evals/runner.py ──► evals/repository.py ──► SQLite file          │
                     │                         │    │                                $DATA_DIR/promptcheck.db  │
                     │               checks.py │    │ llm_client.py                  (/data = mounted volume)  │
-                    │              (pure fns) │    ├── FakeLLMClient (default)                                │
+                    │    (pure fns), judge.py │    ├── FakeLLMClient (default)                                │
                     │              compare.py │    └── AnthropicClient ──HTTPS──► Anthropic API (optional)    │
                     └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -121,6 +121,9 @@ Each check is a pure function `(output: str, arg) -> CheckResult(passed, detail)
 | `max_length` | int | `len(output) <= n` |
 | `valid_json` | none | `json.loads` succeeds |
 | `json_has_keys` | list | output is a JSON object containing all the keys |
+| `llm_judge` | rubric (string) | a model answers PASS to "does this reply meet the rubric?" |
+
+`llm_judge` is the one check that is not a pure function, so it lives in `evals/judge.py`, not in the registry. `score_output(output, checks, judge)` sends rule checks to `run_checks` and judge checks to a `Judge`, keeping the test case's check order. `LLMJudge` asks the server's default model (`LLM_MODEL`), not the version's model, so changing the model under test doesn't change the grader. Its reply must start with PASS or FAIL; anything else counts as a fail. A failed judge call makes the case an `error` (the output is kept), because it says nothing about the output. With `LLM_PROVIDER=fake` a `FakeJudge` passes any non-empty output, so demos and tests need no key. Judge tokens are not added to the result's token counts.
 
 A test case passes only if **all** its checks pass. Adding a new check = one function + one registry entry. Check definitions are validated when a test case is created, so unknown types are rejected with a 422 error.
 
@@ -184,7 +187,7 @@ It returns the categories plus the pass-rate delta, average and p95 latency delt
 | GET | `/runs?prompt_id=` | list |
 | GET | `/runs/{id}` | run + results |
 | GET | `/runs/compare?base=&candidate=` | comparison report |
-| POST | `/runs/{id}/rescore` | new run: stored outputs re-scored with the current checks, matched by inputs; no LLM call |
+| POST | `/runs/{id}/rescore` | new run: stored outputs re-scored with the current checks, matched by inputs; no new outputs (only `llm_judge` checks call the judge) |
 | GET | `/` | the web UI (`promptcheck/static/`, plain HTML/CSS/JS calling this API) |
 
 ### 3.8 Error handling
@@ -214,13 +217,13 @@ The seed is a readable JSON file, not a committed `.db`. A prebuilt database wou
 | DB access | raw `sqlite3` | SQLAlchemy | 5 tables, SQL stays visible and explainable, one less dependency |
 | Domain coupling | gateway interface + snapshots, no cross-domain FKs | shared tables / joins | splittable later (ADR-2, ADR-3) |
 | Run execution | BackgroundTasks + asyncio semaphore | synchronous request; Celery | sync blocks for 30-90 s; Celery isn't allowed |
-| Scoring | deterministic rule checks | LLM-as-judge | reproducible, free, testable (ADR-5) |
-| Auth | none (internal tool) | API keys / login | 8 trusted users on an internal network |
+| Scoring | rule checks plus optional `llm_judge` | rules only | rules can't express tone or helpfulness; judge checks are opt-in per test case, so rule-only test cases stay reproducible and free |
+| Auth | none (internal tool) | API keys / login | 8 trusted users on an internal network (ADR-5) |
 | Frontend | static HTML/CSS/JS in `promptcheck/static/`, served by the same process | React/Vite, Jinja templates | no build step inside the course Dockerfile, no extra Python dependency; the UI only calls the JSON API, so it doesn't cross the domain seam |
 | Seed data | `seed.json` loaded when prompts is empty | committed `.db`; re-seed every boot | a `.db` is hidden by volumes; re-seeding duplicates rows or wipes user data |
 
 ## 6. What to revisit as it grows
 - More than ~10 concurrent runs → a real job queue and worker processes.
 - Multiple teams → auth plus a `team_id` column on prompts.
-- Fuzzy quality ("is this reply polite?") → an optional LLM-as-judge check type.
+- Judge verdicts flipping between runs → run each judge check several times and take the majority, or pin a judge model per prompt.
 - Test sets drifting apart from versions → pin a test-set snapshot per version.

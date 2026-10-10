@@ -10,6 +10,7 @@ from promptcheck.db import get_connection, init_db
 from promptcheck.errors import DomainError
 from promptcheck.evals import repository as evals_repo
 from promptcheck.evals import runner
+from promptcheck.evals.judge import build_judge
 from promptcheck.evals.llm_client import build_llm_client
 from promptcheck.evals.router import router as evals_router
 from promptcheck.prompts import repository as prompts_repo
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="PromptCheck", lifespan=lifespan)
     app.state.settings = settings
     app.state.llm = build_llm_client(settings)
+    app.state.judge = build_judge(settings, app.state.llm)
 
     @app.exception_handler(DomainError)
     async def handle_domain_error(request: Request, exc: DomainError):

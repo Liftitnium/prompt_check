@@ -507,7 +507,8 @@ function renderCases(prompt, cases, latest, checks) {
       const kind = checks[sel.value];
       arg.disabled = kind === null;
       arg.placeholder = kind === null ? "no argument" : kind === "int" ? "a number, e.g. 600"
-        : kind === "list" ? "comma-separated keys" : sel.value === "regex" ? "a regular expression" : "text";
+        : kind === "list" ? "comma-separated keys" : sel.value === "regex" ? "a regular expression"
+        : sel.value === "llm_judge" ? "a rubric, e.g. replies politely in Spanish" : "text";
       arg.inputMode = kind === "int" ? "numeric" : "text";
       if (kind === null) arg.value = "";
     };

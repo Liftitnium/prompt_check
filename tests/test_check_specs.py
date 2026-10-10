@@ -23,6 +23,7 @@ def test_valid_checks_are_normalised():
     ({"type": "max_length", "arg": 0}, "must be positive"),
     ({"type": "regex", "arg": "(unclosed"}, "invalid regex"),
     ({"type": "json_has_keys", "arg": ["ok", 3]}, "list of strings"),
+    ({"type": "llm_judge", "arg": "   "}, "needs a rubric"),
 ])
 def test_invalid_checks_are_rejected(check, message):
     with pytest.raises(InvalidInputError, match=message):

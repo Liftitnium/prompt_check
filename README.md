@@ -61,7 +61,7 @@ No setup step is needed. On startup the app creates any missing tables (`CREATE 
 pytest --cov=promptcheck --cov-report=term-missing
 ```
 
-Current result: 102 tests passed, 99% coverage.
+Current result: 120 tests passed, 99% coverage.
 
 ## Container contract evidence (§7)
 
@@ -118,6 +118,7 @@ promptcheck/
     router.py             HTTP endpoints (POST /runs returns 202, runs in background)
     runner.py             create_run, evaluate_case, execute_run, startup recovery
     checks.py             check functions + CHECKS registry
+    judge.py              llm_judge checks: Judge protocol, LLMJudge, FakeJudge, score_output
     templates.py          render {variables} into a template
     llm_client.py         LLMClient protocol, FakeLLMClient, AnthropicClient (official SDK)
     compare.py            compare two runs: regressions, fixes, deltas, ship/block verdict
@@ -147,7 +148,7 @@ AI_USAGE.md               AI usage log
 | GET | `/runs?prompt_id=` | List runs, newest first |
 | GET | `/runs/compare?base=&candidate=` | Regressions, fixes, pass-rate/latency/token deltas and a `ship`/`block` verdict |
 | GET | `/runs/{id}` | Run status, pass rate and per-test-case results |
-| POST | `/runs/{id}/rescore` | Re-score a completed run's stored outputs with the current checks, as a new run (no LLM calls; 201) |
+| POST | `/runs/{id}/rescore` | Re-score a completed run's stored outputs with the current checks, as a new run (no new outputs; only `llm_judge` checks call the judge; 201) |
 
 ### Example: the seeded demo
 
@@ -161,7 +162,7 @@ curl "localhost:8000/runs/compare?base=1&candidate=2"
 # -> {"verdict": "block", "summary": {"regressed": 2, "still_passing": 1, ...}}
 ```
 
-Fixed a check? Test cases can't be edited, so archive the old one and add a new one with the same inputs. Then `POST /runs/1/rescore` re-applies the current checks to run 1's stored outputs and returns a new run, without calling the LLM. Outputs are matched by inputs; a test case with new inputs is skipped, because scoring it needs a real run.
+Fixed a check? Test cases can't be edited, so archive the old one and add a new one with the same inputs. Then `POST /runs/1/rescore` re-applies the current checks to run 1's stored outputs and returns a new run, without generating new outputs. Outputs are matched by inputs; a test case with new inputs is skipped, because scoring it needs a real run.
 
 ### Example: your own prompt
 

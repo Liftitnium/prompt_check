@@ -16,8 +16,8 @@ from pathlib import Path
 from promptcheck.db import get_connection
 from promptcheck.errors import InvalidInputError, NotFoundError
 from promptcheck.evals import repository as repo
-from promptcheck.evals.checks import run_checks
 from promptcheck.evals.gateway import PromptsGateway
+from promptcheck.evals.judge import Judge, score_output
 from promptcheck.evals.llm_client import LLMClient
 from promptcheck.evals.templates import MissingVariableError, render
 
@@ -61,7 +61,8 @@ def create_run(
 # ---------- 2. evaluate one case ----------
 
 async def evaluate_case(
-    llm: LLMClient, template: str, model: str, inputs: dict, checks: list[dict]
+    llm: LLMClient, template: str, model: str, inputs: dict, checks: list[dict],
+    judge: Judge | None = None,
 ) -> CaseOutcome:
     try:
         prompt = render(template, inputs)
@@ -75,7 +76,11 @@ async def evaluate_case(
         return CaseOutcome("error", prompt, None, [], f"LLM call failed: {e}", None, None, None)
     latency_ms = round((time.perf_counter() - started) * 1000)
 
-    results = run_checks(response.text, checks)
+    try:
+        results = await score_output(response.text, checks, judge)
+    except Exception as e:  # a failed judge call says nothing about the output, so it's an error, not a fail
+        return CaseOutcome("error", prompt, response.text, [], f"judge call failed: {e}",
+                           latency_ms, response.tokens_in, response.tokens_out)
     status = "pass" if all(r.passed for r in results) else "fail"
     return CaseOutcome(
         status, prompt, response.text, [r.to_dict() for r in results], None,
@@ -85,7 +90,9 @@ async def evaluate_case(
 
 # ---------- 3. execute a whole run ----------
 
-async def execute_run(db_path: Path, run_id: int, llm: LLMClient, concurrency: int) -> None:
+async def execute_run(
+    db_path: Path, run_id: int, llm: LLMClient, concurrency: int, judge: Judge | None = None,
+) -> None:
     """Background task: evaluate every pending result of a run, at most `concurrency` at once."""
     with closing(get_connection(db_path)) as conn:
         run = repo.get_run(conn, run_id)
@@ -101,6 +108,7 @@ async def execute_run(db_path: Path, run_id: int, llm: LLMClient, concurrency: i
                     outcome = await evaluate_case(
                         llm, run["template_snapshot"], run["model"],
                         json.loads(result["inputs_snapshot"]), json.loads(result["checks_snapshot"]),
+                        judge,
                     )
                 _save_outcome(conn, result["id"], outcome)
 
@@ -116,11 +124,14 @@ async def execute_run(db_path: Path, run_id: int, llm: LLMClient, concurrency: i
 
 # ---------- 4. re-score stored outputs ----------
 
-def rescore_run(conn: sqlite3.Connection, gateway: PromptsGateway, run_id: int) -> dict:
+async def rescore_run(
+    conn: sqlite3.Connection, gateway: PromptsGateway, run_id: int, judge: Judge | None = None,
+) -> dict:
     """Score a completed run's stored outputs against the prompt's *current* checks.
 
-    No LLM call: an output depends only on template + model + inputs, so a current
-    test case whose inputs match a stored result can reuse that output. Outputs are
+    No new outputs are generated (only `llm_judge` checks call the judge): an output
+    depends only on template + model + inputs, so a current test case whose inputs
+    match a stored result can reuse that output. Outputs are
     matched by inputs, not test_case_id, because fixing a check means archiving the
     test case and adding a new one. Current test cases with no stored output are
     skipped (scoring them needs the LLM). The result is a new run; the source run
@@ -142,21 +153,31 @@ def rescore_run(conn: sqlite3.Connection, gateway: PromptsGateway, run_id: int) 
     if not matched:
         raise InvalidInputError("no stored outputs match the current test cases")
 
+    # score first, write after: judge calls can be slow, and SQLite allows one writer at a time
+    scored = []
+    for tc, old in matched:
+        try:
+            results = await score_output(old["output"], tc["checks"], judge)
+            status, error = ("pass" if all(r.passed for r in results) else "fail"), None
+        except Exception as e:
+            results, status, error = [], "error", f"judge call failed: {e}"
+        scored.append((tc, old, results, status, error))
+
     new_id = repo.insert_run(
         conn, source["prompt_id"], source["prompt_version_id"], source["version"],
         source["template_snapshot"], source["model"], "rescore", total=len(matched),
     )
     repo.mark_run_running(conn, new_id)
-    for tc, old in matched:
+    for tc, old, results, status, error in scored:
         result_id = repo.insert_pending_result(
             conn, new_id, tc["id"], tc["name"], json.dumps(tc["inputs"]), json.dumps(tc["checks"])
         )
-        results = run_checks(old["output"], tc["checks"])
         repo.update_result(conn, result_id, {
-            "status": "pass" if all(r.passed for r in results) else "fail",
+            "status": status,
             "rendered_prompt": old["rendered_prompt"],
             "output": old["output"],
             "check_details": json.dumps([r.to_dict() for r in results]),
+            "error": error,
             "latency_ms": old["latency_ms"],
             "tokens_in": old["tokens_in"],
             "tokens_out": old["tokens_out"],

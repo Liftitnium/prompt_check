@@ -1,12 +1,13 @@
 import pytest
 
 from promptcheck.evals.checks import CHECKS, run_checks
+from promptcheck.evals.judge import JUDGE_TYPE
 from promptcheck.prompts.check_specs import CHECK_SPECS
 
 
 def test_every_specified_check_type_is_implemented():
     # keeps the prompts-side contract and the evals-side implementation in sync
-    assert set(CHECKS) == set(CHECK_SPECS)
+    assert set(CHECKS) | {JUDGE_TYPE} == set(CHECK_SPECS)
 
 
 @pytest.mark.parametrize("check, output, expected", [

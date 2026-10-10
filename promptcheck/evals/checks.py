@@ -1,7 +1,8 @@
 """Check implementations: each one is a pure function (output, arg) -> CheckResult.
 
 The set of check types is defined by prompts/check_specs.py (the contract);
-this module implements every type listed there. A test keeps the two in sync.
+this module implements every rule type listed there; `llm_judge` needs a model call,
+so it lives in judge.py. A test keeps the contract and the implementations in sync.
 """
 import json
 import re

@@ -33,6 +33,19 @@ class ConcurrencyTrackingLLM:
         return LLMResponse(prompt, 1, 1)
 
 
+class StubJudge:
+    def __init__(self, verdict):
+        self.verdict = verdict
+
+    async def judge(self, output, rubric):
+        return self.verdict, f"stub says {self.verdict}"
+
+
+class BrokenJudge:
+    async def judge(self, output, rubric):
+        raise TimeoutError("judge timed out")
+
+
 @pytest.fixture
 def version(conn):
     """A prompt with one version and three test cases: one passes, one fails, one errors."""
@@ -79,6 +92,24 @@ def test_evaluate_case_missing_variable_is_an_error():
     assert outcome.status == "error"
     assert "name" in outcome.error
     assert outcome.rendered_prompt is None
+
+
+def test_evaluate_case_uses_the_judge_for_judge_checks():
+    checks = [{"type": "contains", "arg": "Hola"}, {"type": "llm_judge", "arg": "is friendly"}]
+    outcome = asyncio.run(runner.evaluate_case(
+        FakeLLMClient(), "Hola {name}", "m", {"name": "Ana"}, checks, judge=StubJudge(False)))
+    assert outcome.status == "fail"
+    assert [d["type"] for d in outcome.check_details] == ["contains", "llm_judge"]
+    assert outcome.check_details[1] == {"type": "llm_judge", "passed": False, "detail": "stub says False"}
+
+
+def test_evaluate_case_judge_failure_is_an_error_but_keeps_the_output():
+    checks = [{"type": "llm_judge", "arg": "is friendly"}]
+    outcome = asyncio.run(runner.evaluate_case(
+        FakeLLMClient(), "Hola", "m", {}, checks, judge=BrokenJudge()))
+    assert outcome.status == "error"
+    assert outcome.output == "Hola"
+    assert outcome.error == "judge call failed: judge timed out"
 
 
 def test_evaluate_case_llm_failure_is_an_error():
@@ -217,7 +248,7 @@ def test_rescore_applies_current_checks_to_stored_outputs(conn, settings, versio
                           [{"type": "contains", "arg": "tienda"}])
     conn.commit()
 
-    new = runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])
+    new = asyncio.run(runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"]))
 
     assert new["id"] != run["id"]
     assert new["provider"] == "rescore"
@@ -233,15 +264,42 @@ def test_rescore_applies_current_checks_to_stored_outputs(conn, settings, versio
     assert [r["status"] for r in source["results"]] == ["pass", "fail", "error"]
 
 
+def test_rescore_runs_judge_checks(conn, settings, version):
+    run = completed_run(conn, settings, version)
+    cases = {tc["name"]: tc for tc in prompts.list_test_cases(conn, version["prompt_id"])}
+    prompts.archive_test_case(conn, cases["passes"]["id"])
+    prompts.add_test_case(conn, version["prompt_id"], "judged", {"message": "hola"},
+                          [{"type": "llm_judge", "arg": "offers a refund"}])
+    conn.commit()
+
+    new = asyncio.run(runner.rescore_run(
+        conn, InProcessPromptsGateway(settings.db_path), run["id"], judge=StubJudge(True)))
+    judged = next(r for r in new["results"] if r["test_case_name"] == "judged")
+    assert judged["status"] == "pass"
+
+
+def test_rescore_marks_a_failed_judge_call_as_an_error(conn, settings, version):
+    run = completed_run(conn, settings, version)
+    prompts.add_test_case(conn, version["prompt_id"], "judged", {"message": "hola"},
+                          [{"type": "llm_judge", "arg": "offers a refund"}])
+    conn.commit()
+
+    new = asyncio.run(runner.rescore_run(
+        conn, InProcessPromptsGateway(settings.db_path), run["id"], judge=BrokenJudge()))
+    judged = next(r for r in new["results"] if r["test_case_name"] == "judged")
+    assert judged["status"] == "error"
+    assert "judge call failed" in judged["error"]
+
+
 def test_rescore_requires_a_completed_run(conn, settings, version):
     run = make_run(conn, settings, version)  # still pending
     with pytest.raises(InvalidInputError):
-        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])
+        asyncio.run(runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"]))
 
 
 def test_rescore_missing_run(conn, settings):
     with pytest.raises(NotFoundError):
-        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), 999)
+        asyncio.run(runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), 999))
 
 
 def test_rescore_with_no_matching_inputs(conn, settings, version):
@@ -252,4 +310,4 @@ def test_rescore_with_no_matching_inputs(conn, settings, version):
                           [{"type": "contains", "arg": "adiós"}])
     conn.commit()
     with pytest.raises(InvalidInputError):
-        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])
+        asyncio.run(runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"]))
