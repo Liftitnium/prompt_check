@@ -34,7 +34,8 @@ Inside the container `DATA_DIR` is `/data`, so the database lives on the named v
 
 ### Once it is running
 
-- Interactive API docs: http://localhost:8000/docs (`/` redirects there)
+- Web UI: http://localhost:8000/ (manifest of prompts → prompt page → runs → gate with a SHIP/HOLD verdict)
+- Interactive API docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
 No setup step is needed. On startup the app creates any missing tables (`CREATE TABLE IF NOT EXISTS`, never `DROP`) and, if there are no prompts yet, loads the demo data from [`promptcheck/prompts/seed.json`](promptcheck/prompts/seed.json). Booting again changes nothing, because the seed is guarded on the prompts table being empty.
@@ -60,7 +61,7 @@ No setup step is needed. On startup the app creates any missing tables (`CREATE 
 pytest --cov=promptcheck --cov-report=term-missing
 ```
 
-Current result: 97 tests passed, 99% coverage.
+Current result: 102 tests passed, 99% coverage.
 
 ## Container contract evidence (§7)
 
@@ -112,6 +113,7 @@ promptcheck/
     check_specs.py        allowed check types and their arguments
     schemas.py            request/response models
     seed.py, seed.json    demo data loaded on first boot when there are no prompts
+  static/                 web UI: index.html, app.css, app.js, self-hosted fonts (no build step)
   evals/                  domain 2: evaluation runs and scoring
     router.py             HTTP endpoints (POST /runs returns 202, runs in background)
     runner.py             create_run, evaluate_case, execute_run, startup recovery
@@ -145,6 +147,7 @@ AI_USAGE.md               AI usage log
 | GET | `/runs?prompt_id=` | List runs, newest first |
 | GET | `/runs/compare?base=&candidate=` | Regressions, fixes, pass-rate/latency/token deltas and a `ship`/`block` verdict |
 | GET | `/runs/{id}` | Run status, pass rate and per-test-case results |
+| POST | `/runs/{id}/rescore` | Re-score a completed run's stored outputs with the current checks, as a new run (no LLM calls; 201) |
 
 ### Example: the seeded demo
 
@@ -157,6 +160,8 @@ curl localhost:8000/runs/1               # poll until "status" is "completed" (p
 curl "localhost:8000/runs/compare?base=1&candidate=2"
 # -> {"verdict": "block", "summary": {"regressed": 2, "still_passing": 1, ...}}
 ```
+
+Fixed a check? Test cases can't be edited, so archive the old one and add a new one with the same inputs. Then `POST /runs/1/rescore` re-applies the current checks to run 1's stored outputs and returns a new run, without calling the LLM. Outputs are matched by inputs; a test case with new inputs is skipped, because scoring it needs a real run.
 
 ### Example: your own prompt
 

@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager, closing
+from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from promptcheck.config import Settings, load_settings
 from promptcheck.db import get_connection, init_db
@@ -15,6 +17,7 @@ from promptcheck.prompts.seed import load_seed
 from promptcheck.prompts.router import router as prompts_router
 
 SCHEMAS = [prompts_repo.SCHEMA, evals_repo.SCHEMA]
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -42,8 +45,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     def root():
-        # no frontend: send visitors to the interactive API docs
-        return RedirectResponse("/docs")
+        # the UI is static HTML/CSS/JS calling the JSON API: no build step, no extra dependency
+        return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/health")
     def health():
@@ -53,4 +56,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(prompts_router)
     app.include_router(evals_router)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     return app

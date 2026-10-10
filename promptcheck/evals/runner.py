@@ -114,6 +114,61 @@ async def execute_run(db_path: Path, run_id: int, llm: LLMClient, concurrency: i
             conn.commit()
 
 
+# ---------- 4. re-score stored outputs ----------
+
+def rescore_run(conn: sqlite3.Connection, gateway: PromptsGateway, run_id: int) -> dict:
+    """Score a completed run's stored outputs against the prompt's *current* checks.
+
+    No LLM call: an output depends only on template + model + inputs, so a current
+    test case whose inputs match a stored result can reuse that output. Outputs are
+    matched by inputs, not test_case_id, because fixing a check means archiving the
+    test case and adding a new one. Current test cases with no stored output are
+    skipped (scoring them needs the LLM). The result is a new run; the source run
+    is never changed, so old runs stay reproducible (ADR-3).
+    """
+    source = repo.get_run(conn, run_id)
+    if source is None:
+        raise NotFoundError(f"run {run_id} not found")
+    if source["status"] != "completed":
+        raise InvalidInputError("only a completed run can be re-scored")
+
+    version = gateway.get_version_for_run(source["prompt_version_id"])
+    stored = {
+        _inputs_key(json.loads(r["inputs_snapshot"])): r
+        for r in repo.list_results(conn, run_id) if r["output"] is not None
+    }
+    matched = [(tc, stored[_inputs_key(tc["inputs"])])
+               for tc in version["test_cases"] if _inputs_key(tc["inputs"]) in stored]
+    if not matched:
+        raise InvalidInputError("no stored outputs match the current test cases")
+
+    new_id = repo.insert_run(
+        conn, source["prompt_id"], source["prompt_version_id"], source["version"],
+        source["template_snapshot"], source["model"], "rescore", total=len(matched),
+    )
+    repo.mark_run_running(conn, new_id)
+    for tc, old in matched:
+        result_id = repo.insert_pending_result(
+            conn, new_id, tc["id"], tc["name"], json.dumps(tc["inputs"]), json.dumps(tc["checks"])
+        )
+        results = run_checks(old["output"], tc["checks"])
+        repo.update_result(conn, result_id, {
+            "status": "pass" if all(r.passed for r in results) else "fail",
+            "rendered_prompt": old["rendered_prompt"],
+            "output": old["output"],
+            "check_details": json.dumps([r.to_dict() for r in results]),
+            "latency_ms": old["latency_ms"],
+            "tokens_in": old["tokens_in"],
+            "tokens_out": old["tokens_out"],
+        })
+    repo.finish_run(conn, new_id)
+    return get_run(conn, new_id, with_results=True)
+
+
+def _inputs_key(inputs: dict) -> str:
+    return json.dumps(inputs, sort_keys=True)
+
+
 def _save_outcome(conn: sqlite3.Connection, result_id: int, outcome: CaseOutcome) -> None:
     repo.update_result(conn, result_id, {
         "status": outcome.status,

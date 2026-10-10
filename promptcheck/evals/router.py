@@ -46,6 +46,15 @@ def compare(base: int, candidate: int, conn: sqlite3.Connection = Depends(get_db
     )
 
 
+@router.post("/runs/{run_id}/rescore", response_model=RunDetailOut,
+             status_code=status.HTTP_201_CREATED)
+def rescore(run_id: int, request: Request, conn: sqlite3.Connection = Depends(get_db)):
+    """Re-score a completed run's stored outputs against the current checks, as a new run.
+    No LLM calls, so it runs synchronously."""
+    settings = request.app.state.settings
+    return runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run_id)
+
+
 @router.get("/runs/{run_id}", response_model=RunDetailOut)
 def get_run(run_id: int, conn: sqlite3.Connection = Depends(get_db)):
     return runner.get_run(conn, run_id, with_results=True)

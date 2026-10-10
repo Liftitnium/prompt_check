@@ -52,3 +52,18 @@ def test_compare_two_versions_over_http(client):
     assert report["metrics"]["pass_rate"] == {"base": 1.0, "candidate": 0.0, "change": -1.0}
 
     assert client.get("/runs/compare", params={"base": run1, "candidate": 999}).status_code == 404
+
+
+def test_rescore_creates_a_comparable_run(client):
+    pid, version_id = setup_prompt(client)
+    run_id = client.post("/runs", json={"prompt_version_id": version_id}).json()["id"]
+
+    resp = client.post(f"/runs/{run_id}/rescore")
+    assert resp.status_code == 201
+    new = resp.json()
+    assert new["provider"] == "rescore"
+    assert new["pass_rate"] == 1.0
+
+    report = client.get("/runs/compare", params={"base": run_id, "candidate": new["id"]}).json()
+    assert report["verdict"] == "ship"
+    assert client.post("/runs/999/rescore").status_code == 404

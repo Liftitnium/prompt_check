@@ -71,13 +71,14 @@ def insert_run(
 def insert_pending_result(
     conn: sqlite3.Connection, run_id: int, test_case_id: int, name: str,
     inputs_json: str, checks_json: str,
-) -> None:
-    conn.execute(
+) -> int:
+    cur = conn.execute(
         """INSERT INTO eval_results (run_id, test_case_id, test_case_name,
                                      inputs_snapshot, checks_snapshot)
            VALUES (?, ?, ?, ?, ?)""",
         (run_id, test_case_id, name, inputs_json, checks_json),
     )
+    return cur.lastrowid
 
 
 def get_run(conn: sqlite3.Connection, run_id: int) -> sqlite3.Row | None:

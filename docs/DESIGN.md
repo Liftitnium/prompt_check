@@ -31,8 +31,8 @@ Single process in a single Docker container built from the course `Dockerfile` t
 
 ```
                     ┌─────────────── one Docker container, one uvicorn process (python app.py) ───────────────┐
- Client ──HTTP──►   │  FastAPI app (main.py): / → /docs, /health, startup: init_db + recovery + load_seed     │
- (curl, /docs)      │                                                                                         │
+ Browser ──HTTP──►  │  FastAPI app (main.py): / + /static (UI), /health, startup: init_db + recovery + seed  │
+ (UI, curl, /docs)  │                                                                                         │
  :$PORT             │  PROMPTS DOMAIN                                                                         │
                     │   prompts/router.py ──► prompts/service.py ──► prompts/repository.py ──┐                │
                     │                         ▲   seed.py ◄── seed.json                      │                │
@@ -184,7 +184,8 @@ It returns the categories plus the pass-rate delta, average and p95 latency delt
 | GET | `/runs?prompt_id=` | list |
 | GET | `/runs/{id}` | run + results |
 | GET | `/runs/compare?base=&candidate=` | comparison report |
-| GET | `/` | redirects to `/docs` (no frontend) |
+| POST | `/runs/{id}/rescore` | new run: stored outputs re-scored with the current checks, matched by inputs; no LLM call |
+| GET | `/` | the web UI (`promptcheck/static/`, plain HTML/CSS/JS calling this API) |
 
 ### 3.8 Error handling
 Domain errors (`NotFoundError`, `ValidationError`, `ConflictError`) are raised in services and turned into 404/422/409 in **one** exception handler in `main.py`. Services therefore never know about HTTP.
@@ -215,7 +216,7 @@ The seed is a readable JSON file, not a committed `.db`. A prebuilt database wou
 | Run execution | BackgroundTasks + asyncio semaphore | synchronous request; Celery | sync blocks for 30-90 s; Celery isn't allowed |
 | Scoring | deterministic rule checks | LLM-as-judge | reproducible, free, testable (ADR-5) |
 | Auth | none (internal tool) | API keys / login | 8 trusted users on an internal network |
-| Frontend | none: FastAPI's `/docs` page | static dashboard, React | the 8 users are engineers who already work with HTTP APIs, and `/docs` gives them a UI for free; the dashboard in the first design was not built |
+| Frontend | static HTML/CSS/JS in `promptcheck/static/`, served by the same process | React/Vite, Jinja templates | no build step inside the course Dockerfile, no extra Python dependency; the UI only calls the JSON API, so it doesn't cross the domain seam |
 | Seed data | `seed.json` loaded when prompts is empty | committed `.db`; re-seed every boot | a `.db` is hidden by volumes; re-seeding duplicates rows or wipes user data |
 
 ## 6. What to revisit as it grows

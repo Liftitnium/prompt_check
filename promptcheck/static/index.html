@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PromptCheck</title>
+  <meta name="description" content="Regression testing for LLM prompts: run versions, compare runs, ship or hold.">
+  <link rel="preload" href="/static/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#app">Skip to content</a>
+  <header class="strip">
+    <a class="brand" href="#/" aria-label="PromptCheck manifest">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">PromptCheck</span>
+      <span class="brand-sub">Dispatch</span>
+    </a>
+    <nav class="strip-nav" aria-label="Main">
+      <a href="#/" data-nav="manifest">Manifest</a>
+      <a href="/docs" target="_blank" rel="noopener">API docs</a>
+    </nav>
+  </header>
+  <main id="app" tabindex="-1" aria-live="polite"></main>
+  <div class="ticker" role="status" aria-live="polite" id="ticker"></div>
+</body>
+</html>

@@ -198,3 +198,58 @@ def test_recover_interrupted_runs(conn, settings, version):
     assert recovered["error"] == runner.INTERRUPTED
     assert all(r["status"] == "error" for r in recovered["results"])
     assert runner.recover_interrupted_runs(conn) == 0  # finished runs are left alone
+
+
+# ---------- rescore_run ----------
+
+def completed_run(conn, settings, version):
+    run = make_run(conn, settings, version)
+    asyncio.run(runner.execute_run(settings.db_path, run["id"], FakeLLMClient(), 2))
+    return run
+
+
+def test_rescore_applies_current_checks_to_stored_outputs(conn, settings, version):
+    run = completed_run(conn, settings, version)
+    cases = {tc["name"]: tc for tc in prompts.list_test_cases(conn, version["prompt_id"])}
+    # "fixing" a check = archive the test case and re-add it with the same inputs
+    prompts.archive_test_case(conn, cases["passes"]["id"])
+    prompts.add_test_case(conn, version["prompt_id"], "passes v2", {"message": "hola"},
+                          [{"type": "contains", "arg": "tienda"}])
+    conn.commit()
+
+    new = runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])
+
+    assert new["id"] != run["id"]
+    assert new["provider"] == "rescore"
+    assert new["status"] == "completed"
+    by_name = {r["test_case_name"]: r for r in new["results"]}
+    # "errors" had no stored output, so it needs the LLM and is skipped
+    assert set(by_name) == {"fails", "passes v2"}
+    assert by_name["passes v2"]["status"] == "fail"
+    assert by_name["passes v2"]["output"] == "Responde con un reembolso a: hola"
+    assert (new["total"], new["passed"], new["failed"]) == (2, 0, 2)
+
+    source = runner.get_run(conn, run["id"], with_results=True)
+    assert [r["status"] for r in source["results"]] == ["pass", "fail", "error"]
+
+
+def test_rescore_requires_a_completed_run(conn, settings, version):
+    run = make_run(conn, settings, version)  # still pending
+    with pytest.raises(InvalidInputError):
+        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])
+
+
+def test_rescore_missing_run(conn, settings):
+    with pytest.raises(NotFoundError):
+        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), 999)
+
+
+def test_rescore_with_no_matching_inputs(conn, settings, version):
+    run = completed_run(conn, settings, version)
+    for tc in prompts.list_test_cases(conn, version["prompt_id"]):
+        prompts.archive_test_case(conn, tc["id"])
+    prompts.add_test_case(conn, version["prompt_id"], "new input", {"message": "adiós"},
+                          [{"type": "contains", "arg": "adiós"}])
+    conn.commit()
+    with pytest.raises(InvalidInputError):
+        runner.rescore_run(conn, InProcessPromptsGateway(settings.db_path), run["id"])

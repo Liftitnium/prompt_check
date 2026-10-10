@@ -32,10 +32,3 @@ Decision: Most tests call `prompts/service.py`, `evals/runner.py`, `checks.py` a
 Alternatives considered: Mocking the database with fake repositories was rejected because the SQL (UNIQUE constraints, snapshots, the empty-table seed guard) is part of what can break, and SQLite in a temp folder is just as fast. Calling the real Claude API in tests was rejected because it needs a key, costs money and would make results flaky.
 Consequences: Tests run in under a second with no network and catch real SQL mistakes. Left thinner: no test hits the real Anthropic API, and there are no load tests or multi-process write tests, so SDK retry behaviour and SQLite's single writer under heavy use are trusted rather than proven.
 
-## 5. Not building LLM-as-judge scoring
-Date: 2026-10-03
-Status: Decided
-Context: Some prompt qualities ("is this reply polite?", "is it helpful?") are hard to express as rules, and a common approach is to ask a second LLM to grade each output. PromptCheck's verdict decides whether a prompt change ships, so the score itself has to be trustworthy.
-Decision: Score outputs only with the 7 deterministic rule checks (contains, regex, valid_json, ...). No LLM-graded check type.
-Alternatives considered: An `llm_judge` check that sends the output plus a rubric to Claude and passes on a "yes". Rejected because the same output could pass on one run and fail on the next, so a "regression" could be judge noise rather than a real change; it would also double the API cost of every run and make the tests depend on a model.
-Consequences: Every verdict is reproducible, free to compute and fully unit-tested. The cost is that fuzzy qualities like tone can only be approximated with rules (e.g. not_contains for banned words); an optional judge check is the first thing to revisit if users need it.
