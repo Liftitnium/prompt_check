@@ -65,7 +65,7 @@ Current result: 120 tests passed, 99% coverage.
 
 ## Container contract evidence (§7)
 
-Output of the course checker, `./container/run.sh /path/to/this/repo`, run on 2026-10-08:
+Output of the course checker, `./container/run.sh /path/to/this/repo`, run on 2026-10-10:
 
 ```
 === SDD Assignment 1 contract check ===
@@ -76,10 +76,10 @@ Repository: /Users/rajinasrallah/code/devops_assignment
 
 ==> Build from a clean context, no build args
   PASS  image built
-  PASS  image size 61 MB
+  PASS  image size 62 MB
 
 ==> Start on PORT=8000 and reach it from the host
-  PASS  HTTP 307 from http://localhost:8000/
+  PASS  HTTP 200 from http://localhost:8000/
 
 ==> SQLite file under DATA_DIR
   PASS  found in /data: promptcheck.db 
@@ -89,7 +89,7 @@ Repository: /Users/rajinasrallah/code/devops_assignment
   PASS  row counts unchanged across restart: eval_results=0 eval_runs=0 prompt_versions=2 prompts=1 test_cases=3 
 
 ==> PORT override is honoured (not hardcoded)
-  PASS  HTTP 307 from http://localhost:9123/
+  PASS  HTTP 200 from http://localhost:9123/
 
 === ALL CHECKS PASSED ===
 Paste this output into your README as the §7 evidence.
