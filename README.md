@@ -127,6 +127,7 @@ promptcheck/
     schemas.py            request/response models
 tests/                    pytest suite
 docs/DESIGN.md            system design
+docs/ui/                  web UI design notes (visual system, product context); not code
 ADR.md                    architecture decision records
 AI_USAGE.md               AI usage log
 ```

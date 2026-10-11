@@ -158,7 +158,7 @@ components:
 
 # Design System: PromptCheck Dispatch
 
-> This file records the UI's visual system only. The system architecture (requirements, components, ADR references) lives in [docs/DESIGN.md](docs/DESIGN.md).
+> This file records the UI's visual system only. The system architecture (requirements, components, ADR references) lives in [docs/DESIGN.md](../DESIGN.md).
 
 ## Overview
 
