@@ -35,7 +35,7 @@ Consequences: Tests run in under a second with no network and catch real SQL mis
 ## 5. Not building authentication or user accounts
 Date: 2026-10-10
 Status: Decided
-Context: PromptCheck is used by one 8-person AI team on the company's internal network, and every endpoint can create prompts or start runs that spend Anthropic API credit. Login would mean a users table, password hashing or SSO, sessions, and permission checks on every route.
+Context: PromptCheck is used by one 8-person AI team on the company's internal network, and every endpoint can create prompts or start runs that spend Anthropic API credit. Login would mean a users table, password hashing or SSO, sessions, and permission checks on every route. This entry replaces my original ADR-5 (2026-10-03, not building LLM-as-judge scoring): on 2026-10-10 I reversed that decision and added an optional `llm_judge` check, because rule checks can't express qualities like language or tone, so authentication became the feature I deliberately left out.
 Decision: No authentication and no user accounts: anyone who can reach the server can use every endpoint. Access control is left to the network the container runs on.
 Alternatives considered: API keys or a login page using FastAPI's security helpers, with a `users` table and a `team_id` on prompts. Rejected because for 8 trusted colleagues it adds a third concern that isn't one of the two domains, more tables and more tests, while protecting against nobody in the current setup.
 Consequences: The app stays two domains and starts with no setup. The cost is that anyone on the network can edit prompts or run up API costs, so exposing it outside the internal network, or adding a second team, means adding auth plus a `team_id` column on prompts first.
