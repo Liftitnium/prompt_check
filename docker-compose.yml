@@ -1,0 +1,94 @@
+# The whole system locally, with one command:   docker compose up --build
+# Secrets come from .env (copy .env.example and fill it in); none are in this file.
+#
+#   UI       http://localhost:8080   static files served by nginx
+#   prompts  http://localhost:8001   /docs, /health
+#   evals    http://localhost:8002   /docs, /health
+#
+# The services find each other by compose service name (evals -> http://prompts:8000).
+# Stop one (docker compose stop prompts) and the other keeps answering.
+name: promptcheck
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-CU10-GDR1-ubuntu-22.04
+    platform: linux/amd64   # no arm64 build; on Apple Silicon this needs Docker's Rosetta emulation
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?set SA_PASSWORD in .env (see .env.example)}
+    ports:
+      - "127.0.0.1:1433:1433"   # only for running the tests from the host
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -b -Q 'SELECT 1' -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # one-off: creates the two databases and logins, then exits 0
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2025-CU10-GDR1-ubuntu-22.04
+    platform: linux/amd64
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      SQLCMDPASSWORD: ${SA_PASSWORD}
+      PROMPTS_DB_PASSWORD: ${PROMPTS_DB_PASSWORD:?set PROMPTS_DB_PASSWORD in .env}
+      EVALS_DB_PASSWORD: ${EVALS_DB_PASSWORD:?set EVALS_DB_PASSWORD in .env}
+    volumes:
+      - ./db/init.sql:/init/init.sql:ro
+    entrypoint: ["/opt/mssql-tools18/bin/sqlcmd", "-S", "sqlserver", "-U", "sa", "-C", "-b", "-i", "/init/init.sql"]
+    restart: "no"
+
+  prompts:
+    build:
+      context: services/prompts
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
+    image: promptcheck-prompts:local
+    environment:
+      DATABASE_URL: mssql://prompts_app:${PROMPTS_DB_PASSWORD}@sqlserver:1433/promptcheck_prompts
+      ALLOWED_ORIGINS: http://localhost:8080
+      SEED_DEMO: "true"
+    ports:
+      - "8001:8000"
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  evals:
+    build:
+      context: services/evals
+      args:
+        GIT_SHA: ${GIT_SHA:-local}
+    image: promptcheck-evals:local
+    environment:
+      DATABASE_URL: mssql://evals_app:${EVALS_DB_PASSWORD}@sqlserver:1433/promptcheck_evals
+      ALLOWED_ORIGINS: http://localhost:8080
+      PROMPTS_URL: http://prompts:8000
+      PROMPTS_TIMEOUT_S: "2"
+      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+    ports:
+      - "8002:8000"
+    # deliberately not depends_on prompts: evals starts and serves stored runs without it
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  ui:
+    image: nginx:1.30.6-alpine
+    volumes:
+      - ./ui:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  sqlserver-data:

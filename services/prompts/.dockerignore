@@ -1,0 +1,7 @@
+# The build context is this service folder. Send only what the Dockerfile copies.
+*
+!requirements.txt
+!app/
+!migrations/
+**/__pycache__
+**/*.pyc
