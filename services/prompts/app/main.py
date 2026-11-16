@@ -12,6 +12,7 @@ from app.config import Settings, load_settings
 from app.db import check_health, connect, migrate
 from app.errors import DomainError
 from app.router import router
+from app.schemas import HealthOut
 from app.seed import load_seed
 
 log = logging.getLogger("prompts")
@@ -61,7 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # one place that turns service errors into HTTP responses
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
-    @app.get("/health")
+    @app.get("/health", response_model=HealthOut,
+             responses={503: {"model": HealthOut, "description": "This service cannot reach its own database"}})
     def health():
         try:
             conn = connect(settings.database_url, login_timeout=3)

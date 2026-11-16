@@ -21,6 +21,7 @@ from app.gateway import HttpPromptsGateway, PromptsGateway
 from app.judge import build_judge
 from app.llm_client import build_llm_client
 from app.router import router
+from app.schemas import HealthOut
 
 log = logging.getLogger("evals")
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -72,7 +73,8 @@ def create_app(settings: Settings | None = None, gateway: PromptsGateway | None 
         # one place that turns service errors into HTTP responses
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
 
-    @app.get("/health")
+    @app.get("/health", response_model=HealthOut,
+             responses={503: {"model": HealthOut, "description": "This service cannot reach its own database"}})
     def health():
         # only this service's own database: a prompts outage must not make evals look dead
         try:

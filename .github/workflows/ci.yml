@@ -38,6 +38,7 @@ jobs:
           python-version: "3.14"
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
+      - run: openapi-spec-validator openapi.yaml
       - run: python -m pytest -q
 
   images:

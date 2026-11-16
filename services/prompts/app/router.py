@@ -15,12 +15,14 @@ from app.schemas import (
     VersionCreate,
     VersionForRunOut,
     VersionOut,
+    errors,
 )
 
 router = APIRouter(tags=["prompts"])
 
 
-@router.post("/prompts", response_model=PromptOut, status_code=status.HTTP_201_CREATED)
+@router.post("/prompts", response_model=PromptOut, status_code=status.HTTP_201_CREATED,
+             responses=errors(409, 422))
 def create_prompt(body: PromptCreate, conn: Connection = Depends(get_db)):
     return service.create_prompt(conn, body.name, body.description)
 
@@ -30,14 +32,14 @@ def list_prompts(conn: Connection = Depends(get_db)):
     return service.list_prompts(conn)
 
 
-@router.get("/prompts/{prompt_id}", response_model=PromptOut)
+@router.get("/prompts/{prompt_id}", response_model=PromptOut, responses=errors(404, 422))
 def get_prompt(prompt_id: int, conn: Connection = Depends(get_db)):
     return service.get_prompt(conn, prompt_id)
 
 
 @router.post(
     "/prompts/{prompt_id}/versions",
-    response_model=VersionOut, status_code=status.HTTP_201_CREATED,
+    response_model=VersionOut, status_code=status.HTTP_201_CREATED, responses=errors(404, 409, 422),
 )
 def publish_version(
     prompt_id: int, body: VersionCreate, conn: Connection = Depends(get_db)
@@ -45,24 +47,24 @@ def publish_version(
     return service.publish_version(conn, prompt_id, body.template, body.model, body.notes)
 
 
-@router.get("/prompts/{prompt_id}/versions", response_model=list[VersionOut])
+@router.get("/prompts/{prompt_id}/versions", response_model=list[VersionOut], responses=errors(404, 422))
 def list_versions(prompt_id: int, conn: Connection = Depends(get_db)):
     return service.list_versions(conn, prompt_id)
 
 
-@router.get("/prompts/{prompt_id}/versions/{version}", response_model=VersionOut)
+@router.get("/prompts/{prompt_id}/versions/{version}", response_model=VersionOut, responses=errors(404, 422))
 def get_version(prompt_id: int, version: int, conn: Connection = Depends(get_db)):
     return service.get_version(conn, prompt_id, version)
 
 
-@router.get("/prompts/{prompt_id}/versions/{a}/diff/{b}", response_model=DiffOut)
+@router.get("/prompts/{prompt_id}/versions/{a}/diff/{b}", response_model=DiffOut, responses=errors(404, 422))
 def diff_versions(prompt_id: int, a: int, b: int, conn: Connection = Depends(get_db)):
     return service.diff_versions(conn, prompt_id, a, b)
 
 
 @router.post(
     "/prompts/{prompt_id}/test-cases",
-    response_model=TestCaseOut, status_code=status.HTTP_201_CREATED,
+    response_model=TestCaseOut, status_code=status.HTTP_201_CREATED, responses=errors(404, 422),
 )
 def add_test_case(
     prompt_id: int, body: TestCaseCreate, conn: Connection = Depends(get_db)
@@ -71,23 +73,23 @@ def add_test_case(
     return service.add_test_case(conn, prompt_id, body.name, body.inputs, checks)
 
 
-@router.get("/prompts/{prompt_id}/test-cases", response_model=list[TestCaseOut])
+@router.get("/prompts/{prompt_id}/test-cases", response_model=list[TestCaseOut], responses=errors(404, 422))
 def list_test_cases(prompt_id: int, conn: Connection = Depends(get_db)):
     return service.list_test_cases(conn, prompt_id)
 
 
-@router.delete("/test-cases/{test_case_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/test-cases/{test_case_id}", status_code=status.HTTP_204_NO_CONTENT, responses=errors(404, 422))
 def archive_test_case(test_case_id: int, conn: Connection = Depends(get_db)):
     service.archive_test_case(conn, test_case_id)
 
 
-@router.get("/checks")
+@router.get("/checks", response_model=dict[str, str | None])
 def list_check_types():
     """The check types a test case may use, and the arg type each expects."""
     return {name: (t.__name__ if t else None) for name, t in CHECK_SPECS.items()}
 
 
-@router.get("/versions/{version_id}/for-run", response_model=VersionForRunOut)
+@router.get("/versions/{version_id}/for-run", response_model=VersionForRunOut, responses=errors(404, 422))
 def get_version_for_run(version_id: int, conn: Connection = Depends(get_db)):
     """The one call the evals service makes: a version plus its active test cases.
 
