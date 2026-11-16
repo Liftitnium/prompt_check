@@ -69,7 +69,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 check_health(conn)
             finally:
                 conn.close()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - any failure to reach the database means 503
             log.warning("health check: database unavailable: %s", e)
             return JSONResponse(
                 status_code=503,

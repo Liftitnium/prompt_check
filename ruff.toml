@@ -1,0 +1,9 @@
+# Lint config for both services (ruff finds this file from services/<name>/).
+target-version = "py314"
+line-length = 120
+# "app" is each service's own package, so imports of it sort as first-party
+src = ["services/prompts", "services/evals"]
+
+[lint.flake8-bugbear]
+# FastAPI's dependency injection is declared as Depends(...) in argument defaults
+extend-immutable-calls = ["fastapi.Depends"]
