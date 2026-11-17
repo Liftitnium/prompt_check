@@ -98,7 +98,12 @@ def connect(url: str, attempts: int = 1, login_timeout: int = 15) -> Connection:
 
 
 def get_db(request: Request) -> Iterator[Connection]:
-    """FastAPI dependency: one connection per request, committed on success."""
+    """FastAPI dependency: one connection per request, committed on success.
+
+    Routes declare it with scope="function" so the commit happens before the response
+    is sent. With FastAPI's default scope it runs after, and a client that got
+    "201 created" could ask for the new row before it was committed.
+    """
     conn = connect(request.app.state.settings.database_url, attempts=3)
     try:
         yield conn

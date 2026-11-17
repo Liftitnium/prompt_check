@@ -14,7 +14,7 @@ router = APIRouter(tags=["evals"])
              responses=errors(404, 422, 502, 503))
 def start_run(
     body: RunCreate, request: Request, background: BackgroundTasks,
-    conn: Connection = Depends(get_db),
+    conn: Connection = Depends(get_db, scope="function"),
 ):
     """Create a run and return immediately (202). The LLM calls happen in the background;
     poll GET /runs/{id} until status is 'completed' or 'failed'."""
@@ -33,13 +33,13 @@ def start_run(
 
 
 @router.get("/runs", response_model=list[RunOut], responses=errors(422))
-def list_runs(prompt_id: int | None = None, conn: Connection = Depends(get_db)):
+def list_runs(prompt_id: int | None = None, conn: Connection = Depends(get_db, scope="function")):
     return runner.list_runs(conn, prompt_id)
 
 
 # declared before /runs/{run_id}, otherwise "compare" would be parsed as a run id
 @router.get("/runs/compare", response_model=CompareOut, responses=errors(404, 422))
-def compare(base: int, candidate: int, conn: Connection = Depends(get_db)):
+def compare(base: int, candidate: int, conn: Connection = Depends(get_db, scope="function")):
     """Compare a candidate run against a base run of the same prompt: regressions,
     fixes, pass-rate/latency/token deltas and a ship/block verdict."""
     return compare_runs(
@@ -50,7 +50,7 @@ def compare(base: int, candidate: int, conn: Connection = Depends(get_db)):
 
 @router.post("/runs/{run_id}/rescore", response_model=RunDetailOut,
              status_code=status.HTTP_201_CREATED, responses=errors(404, 422, 502, 503))
-async def rescore(run_id: int, request: Request, conn: Connection = Depends(get_db)):
+async def rescore(run_id: int, request: Request, conn: Connection = Depends(get_db, scope="function")):
     """Re-score a completed run's stored outputs against the current checks, as a new run.
     No new outputs are generated (only llm_judge checks call the judge), so it answers in one request."""
     return await runner.rescore_run(
@@ -59,5 +59,5 @@ async def rescore(run_id: int, request: Request, conn: Connection = Depends(get_
 
 
 @router.get("/runs/{run_id}", response_model=RunDetailOut, responses=errors(404, 422))
-def get_run(run_id: int, conn: Connection = Depends(get_db)):
+def get_run(run_id: int, conn: Connection = Depends(get_db, scope="function")):
     return runner.get_run(conn, run_id, with_results=True)
