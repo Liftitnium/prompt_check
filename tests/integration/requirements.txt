@@ -1,0 +1,3 @@
+# Only what the cross-seam test needs: it talks to the running services over HTTP.
+pytest==9.1.1
+httpx==0.28.1
