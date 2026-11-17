@@ -51,7 +51,7 @@ def test_compare_two_versions_over_http(client, gateway):
 
 
 def test_rescore_creates_a_comparable_run(client, gateway):
-    pid, version_id = setup_prompt(gateway)
+    _pid, version_id = setup_prompt(gateway)
     run_id = client.post("/runs", json={"prompt_version_id": version_id}).json()["id"]
 
     resp = client.post(f"/runs/{run_id}/rescore")

@@ -5,12 +5,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Request, status
 from app import runner
 from app.compare import compare_runs
 from app.db import Connection, get_db
-from app.schemas import RunCreate, RunDetailOut, RunOut
+from app.schemas import CompareOut, RunCreate, RunDetailOut, RunOut, errors
 
 router = APIRouter(tags=["evals"])
 
 
-@router.post("/runs", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/runs", response_model=RunOut, status_code=status.HTTP_202_ACCEPTED,
+             responses=errors(404, 422, 502, 503))
 def start_run(
     body: RunCreate, request: Request, background: BackgroundTasks,
     conn: Connection = Depends(get_db),
@@ -31,13 +32,13 @@ def start_run(
     return run
 
 
-@router.get("/runs", response_model=list[RunOut])
+@router.get("/runs", response_model=list[RunOut], responses=errors(422))
 def list_runs(prompt_id: int | None = None, conn: Connection = Depends(get_db)):
     return runner.list_runs(conn, prompt_id)
 
 
 # declared before /runs/{run_id}, otherwise "compare" would be parsed as a run id
-@router.get("/runs/compare")
+@router.get("/runs/compare", response_model=CompareOut, responses=errors(404, 422))
 def compare(base: int, candidate: int, conn: Connection = Depends(get_db)):
     """Compare a candidate run against a base run of the same prompt: regressions,
     fixes, pass-rate/latency/token deltas and a ship/block verdict."""
@@ -48,7 +49,7 @@ def compare(base: int, candidate: int, conn: Connection = Depends(get_db)):
 
 
 @router.post("/runs/{run_id}/rescore", response_model=RunDetailOut,
-             status_code=status.HTTP_201_CREATED)
+             status_code=status.HTTP_201_CREATED, responses=errors(404, 422, 502, 503))
 async def rescore(run_id: int, request: Request, conn: Connection = Depends(get_db)):
     """Re-score a completed run's stored outputs against the current checks, as a new run.
     No new outputs are generated (only llm_judge checks call the judge), so it answers in one request."""
@@ -57,6 +58,6 @@ async def rescore(run_id: int, request: Request, conn: Connection = Depends(get_
     )
 
 
-@router.get("/runs/{run_id}", response_model=RunDetailOut)
+@router.get("/runs/{run_id}", response_model=RunDetailOut, responses=errors(404, 422))
 def get_run(run_id: int, conn: Connection = Depends(get_db)):
     return runner.get_run(conn, run_id, with_results=True)

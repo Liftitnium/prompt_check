@@ -69,13 +69,13 @@ async def evaluate_case(
     started = time.perf_counter()
     try:
         response = await llm.complete(prompt, model)
-    except Exception as e:  # one failing call must not stop the rest of the run
+    except Exception as e:  # noqa: BLE001 - one failing call must not stop the rest of the run
         return CaseOutcome("error", prompt, None, [], f"LLM call failed: {e}", None, None, None)
     latency_ms = round((time.perf_counter() - started) * 1000)
 
     try:
         results = await score_output(response.text, checks, judge)
-    except Exception as e:  # a failed judge call says nothing about the output, so it's an error, not a fail
+    except Exception as e:  # noqa: BLE001 - a failed judge call says nothing about the output, so it's an error, not a fail
         return CaseOutcome("error", prompt, response.text, [], f"judge call failed: {e}",
                            latency_ms, response.tokens_in, response.tokens_out)
     status = "pass" if all(r.passed for r in results) else "fail"
@@ -114,7 +114,7 @@ async def execute_run(
             await asyncio.gather(*(evaluate_and_save(r) for r in pending))
             repo.finish_run(conn, run_id)
             conn.commit()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - any crash marks the run failed instead of leaving it running
             conn.rollback()
             repo.fail_run(conn, run_id, f"run crashed: {e}")
             conn.commit()
@@ -160,7 +160,7 @@ async def rescore_run(
         try:
             results = await score_output(old["output"], tc["checks"], judge)
             status, error = ("pass" if all(r.passed for r in results) else "fail"), None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - a failed judge call is an error, not a fail
             results, status, error = [], "error", f"judge call failed: {e}"
         scored.append((tc, old, results, status, error))
 

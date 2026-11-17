@@ -1,4 +1,6 @@
 """Request/response shapes for the evals API."""
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -50,3 +52,82 @@ class RunOut(BaseModel):
 class RunDetailOut(RunOut):
     template_snapshot: str
     results: list[ResultOut]
+
+
+# ---- shared by every route, so the OpenAPI document lists the errors the API really returns
+
+class ErrorOut(BaseModel):
+    """Body of every error. detail is a message, or FastAPI's list of field errors on a 422."""
+    detail: str | list[dict]
+
+
+class HealthOut(BaseModel):
+    status: str
+    db: str
+    version: str
+
+
+_ERROR_DESCRIPTIONS = {
+    404: "Not found",
+    422: "Invalid input",
+    502: "The prompts service answered with an unexpected error",
+    503: "The prompts service is unavailable or timed out",
+}
+
+
+def errors(*codes: int) -> dict:
+    """The `responses=` argument for a route that can fail with these status codes."""
+    return {code: {"model": ErrorOut, "description": _ERROR_DESCRIPTIONS[code]} for code in codes}
+
+
+# ---- GET /runs/compare
+
+class MetricDelta(BaseModel):
+    base: int | float | None
+    candidate: int | float | None
+    change: int | float | None
+
+
+class CaseSummary(BaseModel):
+    test_case_id: int
+    test_case_name: str
+    base_status: str | None
+    candidate_status: str | None
+    candidate_failed_checks: list[str]
+    candidate_error: str | None
+
+
+class CompareSummary(BaseModel):
+    regressed: int
+    fixed: int
+    still_passing: int
+    still_failing: int
+    new: int
+    removed: int
+
+
+class CompareMetrics(BaseModel):
+    pass_rate: MetricDelta
+    avg_latency_ms: MetricDelta
+    p95_latency_ms: MetricDelta
+    total_tokens: MetricDelta
+
+
+class CompareCases(BaseModel):
+    regressed: list[CaseSummary]
+    fixed: list[CaseSummary]
+    still_passing: list[CaseSummary]
+    still_failing: list[CaseSummary]
+    new: list[CaseSummary]
+    removed: list[CaseSummary]
+
+
+class CompareOut(BaseModel):
+    base_run_id: int
+    candidate_run_id: int
+    base_version: int
+    candidate_version: int
+    verdict: Literal["ship", "block"]
+    summary: CompareSummary
+    metrics: CompareMetrics
+    cases: CompareCases

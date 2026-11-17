@@ -66,3 +66,28 @@ class TestCaseOut(BaseModel):
 class VersionForRunOut(VersionOut):
     """Contract with the evals service (GET /versions/{id}/for-run)."""
     test_cases: list[TestCaseOut]
+
+
+# ---- shared by every route, so the OpenAPI document lists the errors the API really returns
+
+class ErrorOut(BaseModel):
+    """Body of every error. detail is a message, or FastAPI's list of field errors on a 422."""
+    detail: str | list[dict]
+
+
+class HealthOut(BaseModel):
+    status: str
+    db: str
+    version: str
+
+
+_ERROR_DESCRIPTIONS = {
+    404: "Not found",
+    409: "Conflicts with existing data",
+    422: "Invalid input",
+}
+
+
+def errors(*codes: int) -> dict:
+    """The `responses=` argument for a route that can fail with these status codes."""
+    return {code: {"model": ErrorOut, "description": _ERROR_DESCRIPTIONS[code]} for code in codes}

@@ -1,0 +1,710 @@
+openapi: 3.1.0
+info:
+  title: PromptCheck evals service
+  version: 2.0.0
+paths:
+  /health:
+    get:
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOut'
+        '503':
+          description: This service cannot reach its own database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOut'
+  /runs:
+    post:
+      tags:
+      - evals
+      summary: Start Run
+      description: 'Create a run and return immediately (202). The LLM calls happen
+        in the background;
+
+        poll GET /runs/{id} until status is ''completed'' or ''failed''.'
+      operationId: start_run_runs_post
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RunCreate'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '502':
+          description: The prompts service answered with an unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '503':
+          description: The prompts service is unavailable or timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+    get:
+      tags:
+      - evals
+      summary: List Runs
+      operationId: list_runs_runs_get
+      parameters:
+      - name: prompt_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Prompt Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RunOut'
+                title: Response List Runs Runs Get
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /runs/compare:
+    get:
+      tags:
+      - evals
+      summary: Compare
+      description: 'Compare a candidate run against a base run of the same prompt:
+        regressions,
+
+        fixes, pass-rate/latency/token deltas and a ship/block verdict.'
+      operationId: compare_runs_compare_get
+      parameters:
+      - name: base
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Base
+      - name: candidate
+        in: query
+        required: true
+        schema:
+          type: integer
+          title: Candidate
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompareOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /runs/{run_id}/rescore:
+    post:
+      tags:
+      - evals
+      summary: Rescore
+      description: 'Re-score a completed run''s stored outputs against the current
+        checks, as a new run.
+
+        No new outputs are generated (only llm_judge checks call the judge), so it
+        answers in one request.'
+      operationId: rescore_runs__run_id__rescore_post
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Run Id
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetailOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '502':
+          description: The prompts service answered with an unexpected error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '503':
+          description: The prompts service is unavailable or timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /runs/{run_id}:
+    get:
+      tags:
+      - evals
+      summary: Get Run
+      operationId: get_run_runs__run_id__get
+      parameters:
+      - name: run_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Run Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunDetailOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+components:
+  schemas:
+    CaseSummary:
+      properties:
+        test_case_id:
+          type: integer
+          title: Test Case Id
+        test_case_name:
+          type: string
+          title: Test Case Name
+        base_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Base Status
+        candidate_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Candidate Status
+        candidate_failed_checks:
+          items:
+            type: string
+          type: array
+          title: Candidate Failed Checks
+        candidate_error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Candidate Error
+      type: object
+      required:
+      - test_case_id
+      - test_case_name
+      - base_status
+      - candidate_status
+      - candidate_failed_checks
+      - candidate_error
+      title: CaseSummary
+    CheckDetail:
+      properties:
+        type:
+          type: string
+          title: Type
+        passed:
+          type: boolean
+          title: Passed
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - type
+      - passed
+      - detail
+      title: CheckDetail
+    CompareCases:
+      properties:
+        regressed:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: Regressed
+        fixed:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: Fixed
+        still_passing:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: Still Passing
+        still_failing:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: Still Failing
+        new:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: New
+        removed:
+          items:
+            $ref: '#/components/schemas/CaseSummary'
+          type: array
+          title: Removed
+      type: object
+      required:
+      - regressed
+      - fixed
+      - still_passing
+      - still_failing
+      - new
+      - removed
+      title: CompareCases
+    CompareMetrics:
+      properties:
+        pass_rate:
+          $ref: '#/components/schemas/MetricDelta'
+        avg_latency_ms:
+          $ref: '#/components/schemas/MetricDelta'
+        p95_latency_ms:
+          $ref: '#/components/schemas/MetricDelta'
+        total_tokens:
+          $ref: '#/components/schemas/MetricDelta'
+      type: object
+      required:
+      - pass_rate
+      - avg_latency_ms
+      - p95_latency_ms
+      - total_tokens
+      title: CompareMetrics
+    CompareOut:
+      properties:
+        base_run_id:
+          type: integer
+          title: Base Run Id
+        candidate_run_id:
+          type: integer
+          title: Candidate Run Id
+        base_version:
+          type: integer
+          title: Base Version
+        candidate_version:
+          type: integer
+          title: Candidate Version
+        verdict:
+          type: string
+          enum:
+          - ship
+          - block
+          title: Verdict
+        summary:
+          $ref: '#/components/schemas/CompareSummary'
+        metrics:
+          $ref: '#/components/schemas/CompareMetrics'
+        cases:
+          $ref: '#/components/schemas/CompareCases'
+      type: object
+      required:
+      - base_run_id
+      - candidate_run_id
+      - base_version
+      - candidate_version
+      - verdict
+      - summary
+      - metrics
+      - cases
+      title: CompareOut
+    CompareSummary:
+      properties:
+        regressed:
+          type: integer
+          title: Regressed
+        fixed:
+          type: integer
+          title: Fixed
+        still_passing:
+          type: integer
+          title: Still Passing
+        still_failing:
+          type: integer
+          title: Still Failing
+        new:
+          type: integer
+          title: New
+        removed:
+          type: integer
+          title: Removed
+      type: object
+      required:
+      - regressed
+      - fixed
+      - still_passing
+      - still_failing
+      - new
+      - removed
+      title: CompareSummary
+    ErrorOut:
+      properties:
+        detail:
+          anyOf:
+          - type: string
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: ErrorOut
+      description: Body of every error. detail is a message, or FastAPI's list of
+        field errors on a 422.
+    HealthOut:
+      properties:
+        status:
+          type: string
+          title: Status
+        db:
+          type: string
+          title: Db
+        version:
+          type: string
+          title: Version
+      type: object
+      required:
+      - status
+      - db
+      - version
+      title: HealthOut
+    MetricDelta:
+      properties:
+        base:
+          anyOf:
+          - type: integer
+          - type: number
+          - type: 'null'
+          title: Base
+        candidate:
+          anyOf:
+          - type: integer
+          - type: number
+          - type: 'null'
+          title: Candidate
+        change:
+          anyOf:
+          - type: integer
+          - type: number
+          - type: 'null'
+          title: Change
+      type: object
+      required:
+      - base
+      - candidate
+      - change
+      title: MetricDelta
+    ResultOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        test_case_id:
+          type: integer
+          title: Test Case Id
+        test_case_name:
+          type: string
+          title: Test Case Name
+        inputs:
+          additionalProperties:
+            type: string
+          type: object
+          title: Inputs
+        checks:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Checks
+        status:
+          type: string
+          title: Status
+        rendered_prompt:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Rendered Prompt
+        output:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Output
+        check_details:
+          items:
+            $ref: '#/components/schemas/CheckDetail'
+          type: array
+          title: Check Details
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        latency_ms:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latency Ms
+        tokens_in:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tokens In
+        tokens_out:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Tokens Out
+      type: object
+      required:
+      - id
+      - test_case_id
+      - test_case_name
+      - inputs
+      - checks
+      - status
+      - rendered_prompt
+      - output
+      - check_details
+      - error
+      - latency_ms
+      - tokens_in
+      - tokens_out
+      title: ResultOut
+    RunCreate:
+      properties:
+        prompt_version_id:
+          type: integer
+          title: Prompt Version Id
+      type: object
+      required:
+      - prompt_version_id
+      title: RunCreate
+    RunDetailOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        prompt_id:
+          type: integer
+          title: Prompt Id
+        prompt_version_id:
+          type: integer
+          title: Prompt Version Id
+        version:
+          type: integer
+          title: Version
+        model:
+          type: string
+          title: Model
+        provider:
+          type: string
+          title: Provider
+        status:
+          type: string
+          title: Status
+        total:
+          type: integer
+          title: Total
+        passed:
+          type: integer
+          title: Passed
+        failed:
+          type: integer
+          title: Failed
+        errored:
+          type: integer
+          title: Errored
+        pass_rate:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Pass Rate
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          title: Created At
+        started_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Started At
+        finished_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Finished At
+        template_snapshot:
+          type: string
+          title: Template Snapshot
+        results:
+          items:
+            $ref: '#/components/schemas/ResultOut'
+          type: array
+          title: Results
+      type: object
+      required:
+      - id
+      - prompt_id
+      - prompt_version_id
+      - version
+      - model
+      - provider
+      - status
+      - total
+      - passed
+      - failed
+      - errored
+      - pass_rate
+      - error
+      - created_at
+      - started_at
+      - finished_at
+      - template_snapshot
+      - results
+      title: RunDetailOut
+    RunOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        prompt_id:
+          type: integer
+          title: Prompt Id
+        prompt_version_id:
+          type: integer
+          title: Prompt Version Id
+        version:
+          type: integer
+          title: Version
+        model:
+          type: string
+          title: Model
+        provider:
+          type: string
+          title: Provider
+        status:
+          type: string
+          title: Status
+        total:
+          type: integer
+          title: Total
+        passed:
+          type: integer
+          title: Passed
+        failed:
+          type: integer
+          title: Failed
+        errored:
+          type: integer
+          title: Errored
+        pass_rate:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Pass Rate
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+        created_at:
+          type: string
+          title: Created At
+        started_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Started At
+        finished_at:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Finished At
+      type: object
+      required:
+      - id
+      - prompt_id
+      - prompt_version_id
+      - version
+      - model
+      - provider
+      - status
+      - total
+      - passed
+      - failed
+      - errored
+      - pass_rate
+      - error
+      - created_at
+      - started_at
+      - finished_at
+      title: RunOut

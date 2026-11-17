@@ -1,0 +1,717 @@
+openapi: 3.1.0
+info:
+  title: PromptCheck prompts service
+  version: 2.0.0
+paths:
+  /health:
+    get:
+      summary: Health
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOut'
+        '503':
+          description: This service cannot reach its own database
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthOut'
+  /prompts:
+    get:
+      tags:
+      - prompts
+      summary: List Prompts
+      operationId: list_prompts_prompts_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/PromptOut'
+                type: array
+                title: Response List Prompts Prompts Get
+    post:
+      tags:
+      - prompts
+      summary: Create Prompt
+      operationId: create_prompt_prompts_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PromptCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptOut'
+        '409':
+          description: Conflicts with existing data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /prompts/{prompt_id}:
+    get:
+      tags:
+      - prompts
+      summary: Get Prompt
+      operationId: get_prompt_prompts__prompt_id__get
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /prompts/{prompt_id}/versions:
+    post:
+      tags:
+      - prompts
+      summary: Publish Version
+      operationId: publish_version_prompts__prompt_id__versions_post
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '409':
+          description: Conflicts with existing data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+    get:
+      tags:
+      - prompts
+      summary: List Versions
+      operationId: list_versions_prompts__prompt_id__versions_get
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VersionOut'
+                title: Response List Versions Prompts  Prompt Id  Versions Get
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /prompts/{prompt_id}/versions/{version}:
+    get:
+      tags:
+      - prompts
+      summary: Get Version
+      operationId: get_version_prompts__prompt_id__versions__version__get
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      - name: version
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /prompts/{prompt_id}/versions/{a}/diff/{b}:
+    get:
+      tags:
+      - prompts
+      summary: Diff Versions
+      operationId: diff_versions_prompts__prompt_id__versions__a__diff__b__get
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      - name: a
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: A
+      - name: b
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: B
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiffOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /prompts/{prompt_id}/test-cases:
+    post:
+      tags:
+      - prompts
+      summary: Add Test Case
+      operationId: add_test_case_prompts__prompt_id__test_cases_post
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TestCaseCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestCaseOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+    get:
+      tags:
+      - prompts
+      summary: List Test Cases
+      operationId: list_test_cases_prompts__prompt_id__test_cases_get
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Prompt Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TestCaseOut'
+                title: Response List Test Cases Prompts  Prompt Id  Test Cases Get
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /test-cases/{test_case_id}:
+    delete:
+      tags:
+      - prompts
+      summary: Archive Test Case
+      operationId: archive_test_case_test_cases__test_case_id__delete
+      parameters:
+      - name: test_case_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Test Case Id
+      responses:
+        '204':
+          description: Successful Response
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+  /checks:
+    get:
+      tags:
+      - prompts
+      summary: List Check Types
+      description: The check types a test case may use, and the arg type each expects.
+      operationId: list_check_types_checks_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  anyOf:
+                  - type: string
+                  - type: 'null'
+                type: object
+                title: Response List Check Types Checks Get
+  /versions/{version_id}/for-run:
+    get:
+      tags:
+      - prompts
+      summary: Get Version For Run
+      description: 'The one call the evals service makes: a version plus its active
+        test cases.
+
+
+        This is the ADR-2 seam, now over HTTP. Keep the response shape stable; the
+
+        evals service depends on it.'
+      operationId: get_version_for_run_versions__version_id__for_run_get
+      parameters:
+      - name: version_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Version Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionForRunOut'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+        '422':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorOut'
+components:
+  schemas:
+    Check:
+      properties:
+        type:
+          type: string
+          title: Type
+        arg:
+          anyOf:
+          - type: string
+          - type: integer
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          title: Arg
+      type: object
+      required:
+      - type
+      title: Check
+    DiffOut:
+      properties:
+        from_version:
+          type: integer
+          title: From Version
+        to_version:
+          type: integer
+          title: To Version
+        added:
+          type: integer
+          title: Added
+        removed:
+          type: integer
+          title: Removed
+        model_changed:
+          type: boolean
+          title: Model Changed
+        diff:
+          items:
+            type: string
+          type: array
+          title: Diff
+      type: object
+      required:
+      - from_version
+      - to_version
+      - added
+      - removed
+      - model_changed
+      - diff
+      title: DiffOut
+    ErrorOut:
+      properties:
+        detail:
+          anyOf:
+          - type: string
+          - items:
+              additionalProperties: true
+              type: object
+            type: array
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: ErrorOut
+      description: Body of every error. detail is a message, or FastAPI's list of
+        field errors on a 422.
+    HealthOut:
+      properties:
+        status:
+          type: string
+          title: Status
+        db:
+          type: string
+          title: Db
+        version:
+          type: string
+          title: Version
+      type: object
+      required:
+      - status
+      - db
+      - version
+      title: HealthOut
+    PromptCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 100
+          minLength: 1
+          title: Name
+        description:
+          type: string
+          title: Description
+          default: ''
+      type: object
+      required:
+      - name
+      title: PromptCreate
+    PromptOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        name:
+          type: string
+          title: Name
+        description:
+          type: string
+          title: Description
+        created_at:
+          type: string
+          title: Created At
+        latest_version:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Latest Version
+        test_case_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Test Case Count
+      type: object
+      required:
+      - id
+      - name
+      - description
+      - created_at
+      title: PromptOut
+    TestCaseCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 200
+          minLength: 1
+          title: Name
+        inputs:
+          additionalProperties:
+            type: string
+          type: object
+          title: Inputs
+          default: {}
+        checks:
+          items:
+            $ref: '#/components/schemas/Check'
+          type: array
+          minItems: 1
+          title: Checks
+      type: object
+      required:
+      - name
+      - checks
+      title: TestCaseCreate
+    TestCaseOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        prompt_id:
+          type: integer
+          title: Prompt Id
+        name:
+          type: string
+          title: Name
+        inputs:
+          additionalProperties:
+            type: string
+          type: object
+          title: Inputs
+        checks:
+          items:
+            $ref: '#/components/schemas/Check'
+          type: array
+          title: Checks
+        archived:
+          type: boolean
+          title: Archived
+        created_at:
+          type: string
+          title: Created At
+      type: object
+      required:
+      - id
+      - prompt_id
+      - name
+      - inputs
+      - checks
+      - archived
+      - created_at
+      title: TestCaseOut
+    VersionCreate:
+      properties:
+        template:
+          type: string
+          minLength: 1
+          title: Template
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        notes:
+          type: string
+          title: Notes
+          default: ''
+      type: object
+      required:
+      - template
+      title: VersionCreate
+    VersionForRunOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        prompt_id:
+          type: integer
+          title: Prompt Id
+        version:
+          type: integer
+          title: Version
+        template:
+          type: string
+          title: Template
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        notes:
+          type: string
+          title: Notes
+        variables:
+          items:
+            type: string
+          type: array
+          title: Variables
+        created_at:
+          type: string
+          title: Created At
+        test_cases:
+          items:
+            $ref: '#/components/schemas/TestCaseOut'
+          type: array
+          title: Test Cases
+      type: object
+      required:
+      - id
+      - prompt_id
+      - version
+      - template
+      - model
+      - notes
+      - variables
+      - created_at
+      - test_cases
+      title: VersionForRunOut
+      description: Contract with the evals service (GET /versions/{id}/for-run).
+    VersionOut:
+      properties:
+        id:
+          type: integer
+          title: Id
+        prompt_id:
+          type: integer
+          title: Prompt Id
+        version:
+          type: integer
+          title: Version
+        template:
+          type: string
+          title: Template
+        model:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Model
+        notes:
+          type: string
+          title: Notes
+        variables:
+          items:
+            type: string
+          type: array
+          title: Variables
+        created_at:
+          type: string
+          title: Created At
+      type: object
+      required:
+      - id
+      - prompt_id
+      - version
+      - template
+      - model
+      - notes
+      - variables
+      - created_at
+      title: VersionOut
