@@ -26,6 +26,8 @@ function serviceFor(path) {
     : { name: "prompts", base: CONFIG.promptsUrl };   // /prompts, /checks, /test-cases
 }
 
+const COLD_START_RETRIES = 3;
+
 async function api(path, options = {}) {
   const init = { method: options.method || "GET", headers: {} };
   if (options.body !== undefined) {
@@ -33,16 +35,30 @@ async function api(path, options = {}) {
     init.body = JSON.stringify(options.body);
   }
   const service = serviceFor(path);
-  let resp;
-  try {
-    resp = await fetch(`${(service.base || "").replace(/\/$/, "")}${path}`, init);
-  } catch {
-    throw new Error(`Can't reach the ${service.name} service. Is it running?`);
+  const url = `${(service.base || "").replace(/\/$/, "")}${path}`;
+  // On Azure each service scales to zero. The first request after idle starts the container
+  // (and maybe resumes its paused database), and Azure answers 503 with no JSON body, or the
+  // request fails outright, until it's ready. Reads are retried; writes are not, because
+  // we can't tell whether a failed write reached the service.
+  const tries = init.method === "GET" ? 1 + COLD_START_RETRIES : 1;
+  for (let attempt = 1; ; attempt++) {
+    let resp = null;
+    let data = null;
+    try {
+      resp = await fetch(url, init);
+      data = resp.status === 204 ? null : await resp.json().catch(() => null);
+    } catch { /* network error or CORS-less 503: treated as not ready below */ }
+    const notReady = !resp || (resp.status === 503 && !(data && data.detail));
+    if (!notReady) {
+      if (!resp.ok) throw new Error(errorText(data, resp.status));
+      return data;
+    }
+    if (attempt >= tries) {
+      throw new Error(`The ${service.name} service is starting up or unreachable. It sleeps when idle and takes up to a minute to wake. Try again shortly.`);
+    }
+    toast(`Waking up the ${service.name} service…`);
+    await new Promise((r) => setTimeout(r, 5000 * attempt));
   }
-  if (resp.status === 204) return null;
-  const data = await resp.json().catch(() => null);
-  if (!resp.ok) throw new Error(errorText(data, resp.status));
-  return data;
 }
 
 function errorText(data, code) {
