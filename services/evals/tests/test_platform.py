@@ -67,6 +67,8 @@ def test_database_url_parsing():
     args = _connect_args("mssql://prompts_app:p%40ss@db.example:14330/prompts")
     assert (args["server"], args["port"], args["user"], args["password"], args["database"]) == (
         "db.example", "14330", "prompts_app", "p@ss", "prompts")
+    assert args["encryption"] is None
+    assert _connect_args("mssql://u:p@x.database.windows.net/db?encrypt=yes")["encryption"] == "require"
     with pytest.raises(ValueError):
         _connect_args("postgres://u:p@h/db")
 

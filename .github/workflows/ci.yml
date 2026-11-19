@@ -2,8 +2,9 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches-ignore: [main]   # main is covered by deploy.yml, which calls this workflow
   pull_request:
+  workflow_call:
 
 jobs:
   test:
@@ -39,7 +40,7 @@ jobs:
       - run: pip install -r requirements-dev.txt
       - run: ruff check .
       - run: openapi-spec-validator openapi.yaml
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=app --cov-report=term --cov-fail-under=70
 
   integration:
     # the cross-seam test (ADR-9): the real system from docker-compose.yml, called over HTTP
@@ -91,4 +92,5 @@ jobs:
           context: services/${{ matrix.service }}
           build-args: GIT_SHA=${{ github.sha }}
           push: ${{ github.ref == 'refs/heads/main' }}
+          provenance: false   # otherwise Container Apps can't pull the image from GHCR
           tags: ghcr.io/${{ env.OWNER }}/promptcheck-${{ matrix.service }}:${{ github.sha }}

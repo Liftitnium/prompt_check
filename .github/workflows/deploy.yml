@@ -1,0 +1,99 @@
+name: deploy
+
+# Every merge to main: run the whole CI workflow (tests, coverage, lint, image builds
+# and the push to GHCR), then deploy those exact images to Azure. No manual steps.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy   # one deploy at a time; a newer push waits instead of racing
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      packages: write   # the images job pushes to GHCR
+
+  deploy:
+    needs: ci   # only if CI passed on this same commit
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write   # lets azure/login swap GitHub's OIDC token for an Azure one
+    env:
+      PREFIX: ${{ vars.PREFIX }}
+      RG: ${{ vars.RESOURCE_GROUP }}
+      UI_STORAGE: ${{ vars.UI_STORAGE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # signs in as the managed identity <prefix>-github; no Azure password exists anywhere
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Look up the UI origin and the services' addresses
+        run: |
+          echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_ENV"
+          web=$(az storage account show --name "$UI_STORAGE" --resource-group "$RG" --query primaryEndpoints.web -o tsv)
+          echo "UI_ORIGIN=${web%/}" >> "$GITHUB_ENV"
+          for svc in prompts evals; do
+            fqdn=$(az containerapp show --name "$PREFIX-$svc" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
+            echo "${svc^^}_URL=https://$fqdn" >> "$GITHUB_ENV"
+          done
+
+      - name: Point each Container App at this commit's image
+        env:
+          PROMPTS_DB_PASSWORD: ${{ secrets.PROMPTS_DB_PASSWORD }}
+          EVALS_DB_PASSWORD: ${{ secrets.EVALS_DB_PASSWORD }}
+        run: |
+          for svc in prompts evals; do
+            pw_var="${svc^^}_DB_PASSWORD"
+            # the connection string is a Container Apps secret, read by the app through secretref:
+            az containerapp secret set --name "$PREFIX-$svc" --resource-group "$RG" \
+              --secrets "database-url=mssql://${svc}_app:${!pw_var}@$PREFIX-sql.database.windows.net:1433/$PREFIX-$svc-db?encrypt=yes" \
+              -o none
+            az containerapp update --name "$PREFIX-$svc" --resource-group "$RG" \
+              --image "ghcr.io/$OWNER/promptcheck-$svc:$GITHUB_SHA" \
+              --min-replicas 0 --max-replicas 1 \
+              --set-env-vars DATABASE_URL=secretref:database-url "ALLOWED_ORIGINS=$UI_ORIGIN" \
+              -o none
+          done
+
+      - name: Publish the UI to the storage static website
+        run: |
+          cat > ui/config.js <<JS
+          // written by the deploy workflow for commit $GITHUB_SHA
+          window.PROMPTCHECK_CONFIG = {
+            promptsUrl: "$PROMPTS_URL",
+            evalsUrl: "$EVALS_URL",
+          };
+          JS
+          # Contributor on the resource group may read the account key, so key auth works
+          # without granting the identity a separate data-plane role
+          az storage blob upload-batch --account-name "$UI_STORAGE" --auth-mode key \
+            --destination '$web' --source ui --overwrite -o none
+
+      - name: Wait for both services to report healthy
+        # a cold start plus the database resuming from auto-pause can take a couple of minutes
+        run: |
+          for svc in PROMPTS EVALS; do
+            url="${svc}_URL"
+            for i in $(seq 1 40); do
+              code=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 60 "${!url}/health" || true)
+              if [ "$code" = 200 ]; then echo "$svc healthy: $(cat /tmp/health.json)"; continue 2; fi
+              echo "$svc not ready yet (HTTP $code), attempt $i/40"
+              sleep 15
+            done
+            echo "::error::$svc never returned 200 from /health"
+            exit 1
+          done
+          echo "Live at $UI_ORIGIN"

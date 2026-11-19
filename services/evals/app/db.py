@@ -8,7 +8,7 @@ import time
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pymssql
 from fastapi import Request
@@ -73,6 +73,8 @@ def _connect_args(url: str, login_timeout: int = 15) -> dict:
         "password": unquote(parts.password or ""),
         "database": parts.path.strip("/"),
         "login_timeout": login_timeout,
+        # Azure SQL refuses unencrypted connections: its URL ends in ?encrypt=yes
+        "encryption": "require" if parse_qs(parts.query).get("encrypt") == ["yes"] else None,
     }
 
 
