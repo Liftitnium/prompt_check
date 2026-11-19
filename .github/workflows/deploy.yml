@@ -57,6 +57,9 @@ jobs:
         run: |
           for svc in prompts evals; do
             pw_var="${svc^^}_DB_PASSWORD"
+            # evals reaches prompts at its HTTPS address; the bare app name doesn't resolve
+            # inside this environment ("Name or service not known")
+            extra=(); if [ "$svc" = evals ]; then extra=("PROMPTS_URL=$PROMPTS_URL"); fi
             # the connection string is a Container Apps secret, read by the app through secretref:
             az containerapp secret set --name "$PREFIX-$svc" --resource-group "$RG" \
               --secrets "database-url=mssql://${svc}_app:${!pw_var}@$PREFIX-sql.database.windows.net:1433/$PREFIX-$svc-db?encrypt=yes" \
@@ -64,7 +67,7 @@ jobs:
             az containerapp update --name "$PREFIX-$svc" --resource-group "$RG" \
               --image "ghcr.io/$OWNER/promptcheck-$svc:$GITHUB_SHA" \
               --min-replicas 0 --max-replicas 1 \
-              --set-env-vars DATABASE_URL=secretref:database-url "ALLOWED_ORIGINS=$UI_ORIGIN" \
+              --set-env-vars DATABASE_URL=secretref:database-url "ALLOWED_ORIGINS=$UI_ORIGIN" "${extra[@]}" \
               -o none
           done
 
