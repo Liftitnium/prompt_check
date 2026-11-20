@@ -81,8 +81,12 @@ def finish_run(conn: Connection, run_id: int) -> None:
                passed  = (SELECT COUNT(*) FROM eval_results WHERE run_id = %s AND status = 'pass'),
                failed  = (SELECT COUNT(*) FROM eval_results WHERE run_id = %s AND status = 'fail'),
                errored = (SELECT COUNT(*) FROM eval_results WHERE run_id = %s AND status = 'error')
+           WHERE id = %s;
+           -- a second statement so it sees the counts just written (migration 002)
+           UPDATE eval_runs SET pass_rate = CASE WHEN total > 0
+                  THEN CAST(passed AS DECIMAL(9, 4)) / total END
            WHERE id = %s""",
-        (run_id, run_id, run_id, run_id),
+        (run_id, run_id, run_id, run_id, run_id),
     )
 
 

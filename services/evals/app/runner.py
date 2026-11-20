@@ -231,9 +231,9 @@ def recover_interrupted_runs(conn: Connection) -> int:
 
 def _run_to_dict(row: dict) -> dict:
     run = dict(row)
-    # only a completed run has a meaningful pass rate; 0.0 on a pending run would look like "all failed"
-    finished = run["status"] == "completed" and run["total"]
-    run["pass_rate"] = round(run["passed"] / run["total"], 4) if finished else None
+    # stored by finish_run (migration 002); NULL until a run completes, because 0.0 on a
+    # pending run would look like "all failed"
+    run["pass_rate"] = float(run["pass_rate"]) if run["pass_rate"] is not None else None
     return run
 
 

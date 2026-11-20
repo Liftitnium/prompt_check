@@ -1,5 +1,6 @@
 """Health, CORS, config and migrations: the parts every service must get right."""
 from dataclasses import replace
+from decimal import Decimal
 
 import pymssql
 import pytest
@@ -40,10 +41,30 @@ def test_cors_allows_only_the_ui_origin():
 
 def test_migrations_are_recorded_and_not_rerun(settings):
     conn = connect(settings.database_url)
-    assert migrate(conn, MIGRATIONS_DIR) == ["001_init.sql"]
+    assert migrate(conn, MIGRATIONS_DIR) == ["001_init.sql", "002_add_run_pass_rate.sql"]
     assert migrate(conn, MIGRATIONS_DIR) == []
-    rows = conn.execute("SELECT version FROM schema_migrations").fetchall()
-    assert [r["version"] for r in rows] == ["001_init.sql"]
+    rows = conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
+    assert [r["version"] for r in rows] == ["001_init.sql", "002_add_run_pass_rate.sql"]
+    conn.close()
+
+
+def test_002_keeps_existing_runs_and_backfills_their_pass_rate(settings, tmp_path):
+    # a database that has only 001 and already holds runs, like the deployed one did
+    (tmp_path / "001_init.sql").write_text((MIGRATIONS_DIR / "001_init.sql").read_text())
+    conn = connect(settings.database_url)
+    migrate(conn, tmp_path)
+    insert = ("""INSERT INTO eval_runs (prompt_id, prompt_version_id, version, template_snapshot,
+                  model, provider, status, total, passed) VALUES (1, 1, 1, 't', 'm', 'fake', %s, %s, %s)""")
+    conn.execute(insert, ("completed", 4, 3))
+    conn.execute(insert, ("completed", 0, 0))
+    conn.execute(insert, ("running", 4, 0))
+    conn.commit()
+
+    assert migrate(conn, MIGRATIONS_DIR) == ["002_add_run_pass_rate.sql"]
+    rows = conn.execute("SELECT status, total, passed, pass_rate FROM eval_runs ORDER BY id").fetchall()
+    assert [(r["status"], r["total"], r["passed"]) for r in rows] == [
+        ("completed", 4, 3), ("completed", 0, 0), ("running", 4, 0)]
+    assert [r["pass_rate"] for r in rows] == [Decimal("0.7500"), None, None]
     conn.close()
 
 

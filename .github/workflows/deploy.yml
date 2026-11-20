@@ -92,11 +92,15 @@ jobs:
             url="${svc}_URL"
             for i in $(seq 1 40); do
               code=$(curl -s -o /tmp/health.json -w '%{http_code}' --max-time 60 "${!url}/health" || true)
-              if [ "$code" = 200 ]; then echo "$svc healthy: $(cat /tmp/health.json)"; continue 2; fi
-              echo "$svc not ready yet (HTTP $code), attempt $i/40"
+              # 200 alone is not enough: if the new revision never starts (e.g. a failed
+              # migration), the previous revision keeps answering 200 with the old SHA
+              if [ "$code" = 200 ] && grep -q "\"version\":\"$GITHUB_SHA\"" /tmp/health.json; then
+                echo "$svc healthy on $GITHUB_SHA: $(cat /tmp/health.json)"; continue 2
+              fi
+              echo "$svc not ready on this commit yet (HTTP $code: $(cat /tmp/health.json 2>/dev/null)), attempt $i/40"
               sleep 15
             done
-            echo "::error::$svc never returned 200 from /health"
+            echo "::error::$svc never returned 200 from /health with version $GITHUB_SHA"
             exit 1
           done
           echo "Live at $UI_ORIGIN"

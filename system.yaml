@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=./system.schema.json
+student: rnasrallah.ieu2024
+prefix: rnasrallah-ieu2024
+public_url: https://rnasrallahieu2024ui.z1.web.core.windows.net
+ui:
+  path: ui
+  storage_account: rnasrallahieu2024ui
+  calls: [prompts, evals]
+azure:
+  resource_group: rg-rnasrallah-ieu2024
+  container_apps_environment: rnasrallah-ieu2024-env
+  sql_server: rnasrallah-ieu2024-sql
+  registry: ghcr.io/liftitnium
+services:
+  prompts:
+    description: Prompts, their immutable numbered versions, and the test cases for each prompt.
+    path: services/prompts
+    openapi: services/prompts/openapi.yaml
+    port_default: 8000
+    health: /health
+    migrations: services/prompts/migrations
+    env:
+      HOST: { default: "0.0.0.0", description: Address the service binds to }
+      PORT: { default: 8000, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: "Connection string of the prompts database (mssql://user:password@host:port/db, ?encrypt=yes on Azure)" }
+      ALLOWED_ORIGINS: { default: "http://localhost:8080", description: "Comma-separated browser origins allowed by CORS (the UI)" }
+      GIT_SHA: { default: dev, description: "Commit the image was built from, reported by /health" }
+      SEED_DEMO: { default: true, description: "Load the demo prompt, versions and test cases into an empty database" }
+      DB_CONNECT_ATTEMPTS: { default: 10, description: Startup connection attempts while SQL Server boots or Azure SQL resumes }
+      LOG_LEVEL: { default: INFO, description: Python logging level }
+    calls: []
+    azure:
+      container_app: rnasrallah-ieu2024-prompts
+      sql_database: rnasrallah-ieu2024-prompts-db
+  evals:
+    description: Eval runs of a prompt version against its test cases, their per-case results, and run comparisons.
+    path: services/evals
+    openapi: services/evals/openapi.yaml
+    port_default: 8000
+    health: /health
+    migrations: services/evals/migrations
+    env:
+      HOST: { default: "0.0.0.0", description: Address the service binds to }
+      PORT: { default: 8000, description: Port the service listens on }
+      DATABASE_URL: { secret: true, description: "Connection string of the evals database (mssql://user:password@host:port/db, ?encrypt=yes on Azure)" }
+      ALLOWED_ORIGINS: { default: "http://localhost:8080", description: "Comma-separated browser origins allowed by CORS (the UI)" }
+      GIT_SHA: { default: dev, description: "Commit the image was built from, reported by /health" }
+      PROMPTS_URL: { default: "http://prompts:8000", description: Base URL of the prompts service (its HTTPS ingress address on Azure) }
+      PROMPTS_TIMEOUT_S: { default: 2, description: Timeout for calls to prompts }
+      LLM_PROVIDER: { default: fake, description: "Model provider for runs: fake (deterministic, no key) or anthropic" }
+      LLM_API_KEY: { secret: true, description: API key for the real provider; unused with the fake provider }
+      LLM_MODEL: { default: claude-opus-5, description: Model used when LLM_PROVIDER is a real provider }
+      LLM_CONCURRENCY: { default: 4, description: Test cases evaluated in parallel within one run }
+      DB_CONNECT_ATTEMPTS: { default: 10, description: Startup connection attempts while SQL Server boots or Azure SQL resumes }
+      LOG_LEVEL: { default: INFO, description: Python logging level }
+    calls:
+      - service: prompts
+        url_env: PROMPTS_URL
+        endpoints: ["GET /versions/{version_id}/for-run"]
+        timeout_s: 2
+        on_failure: Starting a run returns 503 "the prompts service is unavailable; try again later" and nothing is stored; existing runs, results and comparisons keep working from evals' own snapshots.
+    azure:
+      container_app: rnasrallah-ieu2024-evals
+      sql_database: rnasrallah-ieu2024-evals-db
