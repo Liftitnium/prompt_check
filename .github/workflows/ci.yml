@@ -42,6 +42,17 @@ jobs:
       - run: openapi-spec-validator openapi.yaml
       - run: python -m pytest -q --cov=app --cov-report=term --cov-fail-under=70
 
+  system:
+    # system.yaml describes the deployment for grading; it must match the provided schema
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install check-jsonschema==0.29.4
+      - run: check-jsonschema --schemafile system.schema.json system.yaml
+
   integration:
     # the cross-seam test (ADR-9): the real system from docker-compose.yml, called over HTTP
     runs-on: ubuntu-24.04
