@@ -26,7 +26,7 @@ Consequences: Every run is reproducible and self-contained, and the evals tables
 
 ## 4. Testing approach: business logic against a real SQLite file, with the LLM faked
 Date: 2026-10-08
-Status: Decided
+Status: Superseded by [9] (tests now run against SQL Server, and cross-seam and UI tests cover the two services together)
 Context: The brief needs ≥70% coverage on core business logic. In PromptCheck the risky logic is version numbering, check validation, scoring, run status changes and the regression verdict, and the one external dependency (the LLM API) is slow, costs money and gives different answers each time.
 Decision: Most tests call `prompts/service.py`, `evals/runner.py`, `checks.py` and `compare.py` directly against a fresh SQLite file in pytest's `tmp_path`, with `FakeLLMClient` or small stub clients (failing, concurrency-tracking) standing in for the LLM and stub judges standing in for `llm_judge` checks; `AnthropicClient` is tested with a stub SDK object, and a few `TestClient` tests check HTTP status codes and the startup seed. Coverage is measured with `pytest --cov=promptcheck` (120 tests, 99%).
 Alternatives considered: Mocking the database with fake repositories was rejected because the SQL (UNIQUE constraints, snapshots, the empty-table seed guard) is part of what can break, and SQLite in a temp folder is just as fast. Calling the real Claude API in tests was rejected because it needs a key, costs money and would make results flaky.
@@ -70,3 +70,76 @@ Alternatives considered:
 - One database with two schemas. Rejected by the brief, and it would let evals join prompts' tables again.
 - Down-migrations. Not written, because point-in-time restore covers the case where reversing a change would actually matter, which is losing data.
 Consequences: The schema history is visible in plain SQL files and replays identically locally, in CI and on Azure. Migrations run at startup, which is safe only because each app runs at most one replica (ADR-8). With two replicas, both could try to apply the same file. A data-changing migration has to be written to finish inside one transaction on a database that may have just resumed from pause. Restoring from a backup loses everything written after the restore point.
+
+## 8. Serverless on Azure: two scale-to-zero Container Apps and two auto-pausing serverless databases
+Date: 2026-11-21
+Status: Decided
+Context: PromptCheck is used in bursts by one team: someone writes a version, runs it and compares, then nobody touches it for hours. The brief asks for a serverless deployment on Azure that costs close to nothing when idle, deployed automatically from main.
+Decision:
+- **Resources.** These live in `rg-rnasrallah-ieu2024`:
+  - one Container Apps environment (consumption plan, logs to the `rnasrallah-ieu2024-logs` Log Analytics workspace), holding the two Container Apps `rnasrallah-ieu2024-prompts` and `rnasrallah-ieu2024-evals`, each with 0.25 vCPU and 0.5 GiB, external HTTPS ingress, min 0 and max 1 replicas
+  - one Azure SQL server with two serverless General Purpose databases on the free offer (0.5 to 1 vCore, auto-pause after 60 minutes, and `AutoPause` when the monthly free limit runs out)
+  - a storage account serving the UI as a static website
+  - a user-assigned managed identity that GitHub Actions signs in as through OIDC (Contributor on the resource group only)
+
+  Images live in GHCR as public packages, so the apps need no registry credentials.
+- **Cost model.** Everything is billed per use, and at this traffic everything sits inside free allowances. Container Apps bills vCPU-seconds and GiB-seconds only while a replica runs, and the monthly free grant (180,000 vCPU-s, 360,000 GiB-s, 2 million requests) covers far more than this usage. Each database gets 100,000 vCore-seconds and 32 GB a month free. Because the exhaustion behaviour is `AutoPause`, running out pauses the database instead of sending a bill. Storage and Log Analytics cost cents at this volume. The expected bill is zero, and the worst case is an outage, not a charge.
+- **Scale to zero and cold starts.** With min replicas 0, an idle app has no running container. The first request after idle waits for Container Apps to start one, which means pulling the image, booting Python and checking migrations, and takes a few seconds. If the database has also paused, the first connection fails with error 40613 ("not currently available") for about a minute while it resumes.
+- **Connection retries.** `app/db.py:connect` retries with exponential backoff capped at 15 seconds. At startup it makes up to `DB_CONNECT_ATTEMPTS` (10) attempts, enough to ride out a resume. A connection opened for a request gets 3 attempts. The UI retries reads while a service wakes and shows "Waking up the … service", but does not retry writes, because it can't tell whether a failed write was applied. The deploy's health check allows up to 10 minutes for all of this.
+- **Migrations at startup, with a single replica.** Each service applies its pending migrations before it starts listening (ADR-7). `--max-replicas 1` guarantees only one container migrates a database at a time. On boot, evals also marks runs left `pending` or `running` by a stopped replica as failed ("interrupted by server restart"), because runs execute as background tasks inside the replica.
+Alternatives considered:
+- App Service or a VM. Rejected because both bill around the clock whether or not anyone uses the app.
+- Azure Functions. Rejected because it would mean rewriting two FastAPI apps into function handlers. Container Apps runs the same image as `docker compose`.
+- Provisioned (non-serverless) Azure SQL. Rejected because it bills every hour and has no auto-pause.
+- Keeping min replicas at 1 to avoid cold starts. Rejected for now: it costs money all month to save a few seconds on the first request after idle.
+Consequences:
+- **The first visit after a quiet hour is slow,** sometimes over a minute when the database also has to resume.
+- **What breaks first at 100x traffic is the free database limit, not the app.** Every resume keeps the database up at least 60 minutes at a minimum of 0.5 vCore, which costs at least 1,800 vCore-seconds of the 100,000. Steady use would exhaust the allowance within days, and `AutoPause` would then take the service offline until the month resets.
+- **Next to break is the single replica:** one 0.25 vCPU container per service, with runs competing with API requests for it.
+- **What I would change for 100x, in order:**
+  1. Switch the exhaustion behaviour to bill for overage.
+  2. Move migrations out of startup into a Container Apps job that the deploy runs before updating the apps, then raise max replicas with an HTTP scale rule.
+  3. Move run execution to a queue with a worker, so scaling in can't kill a run halfway.
+  4. Pool database connections instead of opening one per request.
+
+## 9. Pipeline and testing: real SQL Server in CI, cross-seam and UI tests, deploy only what passed
+Date: 2026-11-21
+Status: Decided
+Context: ADR-4 tested one process against a SQLite file. There are now two services, each with its own SQL Server database, an HTTP call between them, a UI that talks to both, and a pipeline that deploys every merge to main without a manual step. A bad commit on main therefore reaches production unless CI stops it.
+Decision:
+- **What runs on every push and pull request** (`ci.yml`):
+  - **For each service** (matrix):
+    - `ruff check`
+    - `openapi-spec-validator` on its `openapi.yaml`
+    - `pytest` with `--cov-fail-under=70`, against a real SQL Server 2025 container. Each service has its own test database, wiped before every test so each test migrates from nothing. The tests cover the service logic, the routes, the migration runner (including that a failed file leaves nothing behind and that 002 backfills existing rows), the seed, and the `CHECK_SPECS` sync between the two services.
+  - **`system`:** validates `system.yaml` against the provided schema.
+  - **`integration`:** starts the real system with `docker compose up --build` and tests it from outside.
+    - `test_cross_seam.py` calls both services over HTTP and checks that:
+      - a run created in evals uses the version and test cases stored in prompts
+      - a version missing from prompts comes back from evals as a 404
+      - with prompts stopped, evals still serves its own data and `POST /runs` returns 503 within 5 seconds instead of hanging
+    - `test_ui.py` drives the real UI in headless Chromium (Playwright) and checks that:
+      - the manifest lists a prompt from prompts
+      - a run started from the UI completes in evals
+      - with prompts stopped, the UI shows the 503 message
+
+      Any JavaScript error in the page fails the test.
+  - **`images`:** builds both images on every run, but pushes to GHCR only on main.
+- **What gates the deploy** (`deploy.yml`, on push to main): it calls `ci.yml` as a reusable workflow, and the `deploy` job needs it, so nothing reaches Azure unless every job above passed on that same commit. The deploy then waits until both `/health` endpoints return 200 with that commit's SHA. If they never do, the run fails, which covers a failed migration that leaves the old revision serving.
+- **Why these gates:**
+  - Tests run on SQL Server because the bugs that matter here are in T-SQL and migrations, which SQLite would not catch.
+  - The cross-seam tests exist because each service's unit tests stub the other side, so only a test with both services running proves the seam works.
+  - The UI tests exist because the UI is plain JavaScript with no build step, so nothing else notices when it breaks against the APIs.
+  - The SHA check exists because a 200 alone can come from the previous revision.
+Alternatives considered:
+- SQLite in the unit tests. Rejected because of the dialect differences (`OUTPUT INSERTED`, `IDENTITY`, `GO` batches), which are exactly what migrations exercise.
+- A contract-testing tool such as Pact. Rejected as overkill for one endpoint between two services in one repo. The integration tests and the shared `CHECK_SPECS` test cover the contract.
+- Running integration tests against a staging environment on Azure. Rejected because it would double the Azure resources and the cost for a single-developer project.
+Consequences:
+- A pipeline run takes about 2 minutes for CI and about 3.5 minutes for CI plus deploy, before the UI tests were added.
+- **Deliberately not tested:**
+  - **The real Anthropic API.** Tests use the fake client, for the same reasons as ADR-4.
+  - **Azure-only behaviour** (database resume, HTTPS ingress between the apps, the managed identity, the deployed `config.js`). Each deploy exercises it, but no test does, so a problem there shows up as a failed health check, not a failed test.
+  - **Visual layout.** The UI tests check behaviour, not how the pages look.
+  - **Load and concurrency across replicas.** There is only one replica (ADR-8).
+- **There is no automatic rollback.** A failed deploy leaves the previous revision serving, and the fix is a new commit.
