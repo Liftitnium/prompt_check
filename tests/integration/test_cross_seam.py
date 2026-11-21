@@ -8,52 +8,11 @@ starts nothing itself: it calls the running services over HTTP, the way the UI d
     pip install -r tests/integration/requirements.txt
     pytest tests/integration
 
-PROMPTS_URL and EVALS_URL default to the ports compose publishes. The partial-failure
-test stops and restarts the prompts container, so it needs the docker CLI.
+Fixtures (the HTTP clients, a fresh prompt version, stopping prompts) are in conftest.py.
 """
-import os
-import shutil
-import subprocess
 import time
-import uuid
 
-import httpx
 import pytest
-
-PROMPTS_URL = os.environ.get("PROMPTS_URL", "http://localhost:8001")
-EVALS_URL = os.environ.get("EVALS_URL", "http://localhost:8002")
-
-
-@pytest.fixture(scope="module")
-def prompts():
-    with httpx.Client(base_url=PROMPTS_URL, timeout=10) as client:
-        yield client
-
-
-@pytest.fixture(scope="module")
-def evals():
-    with httpx.Client(base_url=EVALS_URL, timeout=10) as client:
-        yield client
-
-
-@pytest.fixture
-def prompt_version(prompts):
-    """A fresh prompt with one version and one test case, created in the prompts service."""
-    name = f"it-{uuid.uuid4().hex[:8]}"  # unique, so the test can run again on the same database
-    prompt = prompts.post("/prompts", json={"name": name, "description": "integration test"})
-    assert prompt.status_code == 201, prompt.text
-    prompt_id = prompt.json()["id"]
-
-    version = prompts.post(f"/prompts/{prompt_id}/versions", json={"template": "Say hello to {person}."})
-    assert version.status_code == 201, version.text
-
-    case = prompts.post(f"/prompts/{prompt_id}/test-cases", json={
-        "name": "greets the person",
-        "inputs": {"person": "Ada"},
-        "checks": [{"type": "contains", "arg": "Ada"}],
-    })
-    assert case.status_code == 201, case.text
-    return version.json()
 
 
 def wait_for_run(evals, run_id: int, timeout_s: float = 30) -> dict:
@@ -88,30 +47,6 @@ def test_a_version_missing_in_prompts_is_a_404_from_evals(evals):
     response = evals.post("/runs", json={"prompt_version_id": 999_999_999})
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
-
-
-@pytest.fixture
-def prompts_stopped():
-    if not shutil.which("docker"):
-        pytest.skip("needs the docker CLI to stop the prompts container")
-    subprocess.run(["docker", "compose", "stop", "prompts"], check=True, capture_output=True)
-    try:
-        yield
-    finally:
-        subprocess.run(["docker", "compose", "start", "prompts"], check=True, capture_output=True)
-        wait_until_healthy(PROMPTS_URL)
-
-
-def wait_until_healthy(url: str, timeout_s: float = 90) -> None:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
-        try:
-            if httpx.get(f"{url}/health", timeout=3).status_code == 200:
-                return
-        except httpx.TransportError:
-            pass
-        time.sleep(1)
-    pytest.fail(f"{url} did not become healthy within {timeout_s}s")
 
 
 def test_with_prompts_down_evals_keeps_serving_and_the_cross_seam_flow_fails_cleanly(

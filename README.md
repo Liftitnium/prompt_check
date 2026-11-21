@@ -72,11 +72,12 @@ ruff check .
 
 Current result: prompts 94%, evals 97% coverage.
 
-The cross-seam integration test runs against the whole compose stack over HTTP, including stopping prompts to check the designed failure:
+The integration tests run against the whole compose stack. The cross-seam tests call both services over HTTP. The UI tests drive the UI on :8080 in headless Chromium (Playwright): the manifest lists a prompt from prompts, a run started from the UI completes in evals, and with prompts stopped the UI shows the 503 message. Both sets stop prompts to check the designed failure, and every UI test fails on any JavaScript error in the page:
 
 ```bash
 docker compose up -d --build
 pip install -r tests/integration/requirements.txt
+python -m playwright install chromium
 python -m pytest tests/integration -v
 ```
 
@@ -84,7 +85,7 @@ python -m pytest tests/integration -v
 
 Every change reaches `main` through a pull request.
 
-- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every branch push and pull request. Per service: ruff, OpenAPI validation, tests with a 70% coverage gate against a SQL Server service container. Then `system.yaml` is checked against `system.schema.json`, the cross-seam integration test runs against the compose stack, and both images are built.
+- **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every branch push and pull request. Per service: ruff, OpenAPI validation, tests with a 70% coverage gate against a SQL Server service container. Then `system.yaml` is checked against `system.schema.json`, the cross-seam and UI integration tests run against the compose stack, and both images are built.
 - **CD** ([`.github/workflows/deploy.yml`](.github/workflows/deploy.yml)) runs on every push to `main`. It first calls `ci.yml`, so nothing deploys unless CI passed on the same commit, and the images are pushed to GHCR tagged with the commit SHA. The deploy job then:
   1. signs in to Azure as the managed identity `rnasrallah-ieu2024-github` through OpenID Connect (no stored Azure password);
   2. for each service, stores its database URL as a Container Apps secret and points the Container App at `ghcr.io/liftitnium/promptcheck-<service>:<sha>`, with min 0 / max 1 replicas, CORS limited to the UI's origin, and (for evals) prompts' HTTPS address as `PROMPTS_URL`;
@@ -279,7 +280,7 @@ services/
   prompts/                Dockerfile, requirements*.txt, openapi.yaml, migrations/, app/, tests/
   evals/                  Dockerfile, requirements*.txt, openapi.yaml, migrations/, app/, tests/
 ui/                       static UI; config.js holds the service URLs
-tests/integration/        cross-seam test against the running compose stack
+tests/integration/        cross-seam and UI (Playwright) tests against the running compose stack
 .github/workflows/        ci.yml (every push and PR), deploy.yml (main only)
 docs/DESIGN.md            system design
 ADR.md, AI_USAGE.md       decision records and AI usage log
