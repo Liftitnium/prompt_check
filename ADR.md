@@ -143,3 +143,25 @@ Consequences:
   - **Visual layout.** The UI tests check behaviour, not how the pages look.
   - **Load and concurrency across replicas.** There is only one replica (ADR-8).
 - **There is no automatic rollback.** A failed deploy leaves the previous revision serving, and the fix is a new commit.
+
+## 10. Not built: a queue and a separate worker for eval runs
+Date: 2026-11-22
+Status: Decided
+Context: `POST /runs` creates the run, answers 202, and executes the test cases in a FastAPI background task inside the same evals replica that serves the API. The textbook design for long-running work is a queue (for example Azure Storage Queues or Service Bus) and a worker that takes runs from it, so the API never does the work itself. I considered it and did not build it.
+Decision: Keep runs as in-process background tasks. The known failure is handled instead of prevented: if the replica stops mid-run (a deploy replacing the revision, a crash, or a scale-in to zero), the run stays `pending` or `running` in the database, and on its next boot evals marks every such run as failed with "interrupted by server restart" (`runner.recover_interrupted_runs`). Run creation is still all-or-nothing, so a 503 from prompts never leaves a half-made run.
+Why not now:
+- **The load doesn't need it.** One team starts a handful of runs a day. With the fake provider a run takes well under a second, and with a real model it is bounded by the number of test cases at `LLM_CONCURRENCY` 4 calls at a time.
+- **The cost does.** A queue adds:
+  - another Azure resource and its connection secret
+  - a third container (the worker) with its own deploy, health check and scaling rule
+  - a second way for a run to fail (the message is lost or processed twice), which needs idempotent processing
+  - integration tests that start the worker
+
+  That roughly doubles what CI and the deploy have to look after, for a failure that today costs the user one click on "Run" again.
+- **Single replica (ADR-8).** With max replicas 1 there is no second API replica that could take a run and no reason to spread runs across machines.
+When it would be worth building:
+- **Runs get long:** many test cases or slow models, so that a deploy or a scale-in during a run becomes likely rather than rare. Container Apps scales an idle app to zero after a cooldown with no HTTP requests, and a run that outlives it would be killed.
+- **evals scales past one replica:** once migrations move out of startup (ADR-8), each replica would run its own background tasks with no fair sharing and no retry.
+- **Users need runs to survive failures:** for example, a scheduled nightly regression gate that nobody is watching, where an "interrupted" run means a missed check.
+At that point the change is contained: `POST /runs` still creates the run and its snapshots, then puts the run id on a queue instead of calling `execute_run`. A worker container built from the same image takes ids and calls the same `execute_run`. The status changes in the database already make a retried run safe to detect.
+Consequences: A deploy while a run is executing fails that run, and the user has to start it again. The deploy is fast and runs are short, so this is rare, but it is a real cost that a queue would remove.
