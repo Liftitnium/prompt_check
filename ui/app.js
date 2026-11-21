@@ -394,7 +394,7 @@ function renderVersions(token, prompt, versions, cases) {
   box.querySelectorAll("[data-run]").forEach((b) => { b.onclick = async () => {
     busy(b, true);
     try {
-      const run = await api("/runs", { method: "POST", body: { version_id: Number(b.dataset.run) } });
+      const run = await api("/runs", { method: "POST", body: { prompt_version_id: Number(b.dataset.run) } });
       toast(`Run #${run.id} started for v${b.dataset.v}`);
       const runs = await api(`/runs?prompt_id=${prompt.id}`);
       if (token === renderToken) renderRuns(token, prompt, runs);
