@@ -1,3 +1,5 @@
-# Only what the cross-seam test needs: it talks to the running services over HTTP.
+# Only what the integration tests need: they talk to the running stack over HTTP,
+# and test_ui.py drives the UI in a headless Chromium.
 pytest==9.1.1
 httpx==0.28.1
+playwright==1.65.2

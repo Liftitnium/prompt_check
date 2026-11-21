@@ -54,7 +54,8 @@ jobs:
       - run: check-jsonschema --schemafile system.schema.json system.yaml
 
   integration:
-    # the cross-seam test (ADR-9): the real system from docker-compose.yml, called over HTTP
+    # the cross-seam test and the UI checks (ADR-9): the real system from docker-compose.yml,
+    # called over HTTP and through the UI in a headless browser
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -64,10 +65,10 @@ jobs:
             echo "$name=$(openssl rand -hex 16)Aa1" >> .env
           done
       - run: docker compose up -d --build
-      - name: Wait for both services
+      - name: Wait for both services and the UI
         run: |
           for i in $(seq 1 60); do
-            curl -sf localhost:8001/health && curl -sf localhost:8002/health && exit 0
+            curl -sf localhost:8001/health && curl -sf localhost:8002/health && curl -sf -o /dev/null localhost:8080 && exit 0
             sleep 5
           done
           docker compose logs
@@ -76,6 +77,7 @@ jobs:
         with:
           python-version: "3.14"
       - run: pip install -r tests/integration/requirements.txt
+      - run: python -m playwright install --with-deps chromium
       - run: python -m pytest tests/integration -v
       - if: failure()
         run: docker compose logs
